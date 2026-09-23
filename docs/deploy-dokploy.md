@@ -17,11 +17,12 @@ Internet ──HTTPS──> Dokploy Traefik ──> web:3000 ──/api/*──>
 - The server's **static outbound IP** — ResellerClub only accepts API calls from allowlisted IPs.
   Find it with `curl -s https://api.ipify.org` on the server and record it in `docs/runbooks/deployment.md`.
 
-## 1. Push the repository to GitHub
+## 1. GitHub repository
+
+Repository: <https://github.com/DivineFlame/OctaveOneCloud> (branch `main`).
 
 ```bash
-git remote add origin git@github.com:<you>/octaveonecloud.git
-git push -u origin main
+git clone https://github.com/DivineFlame/OctaveOneCloud.git
 ```
 
 Keep the repository **private**. Check that GitHub Actions CI goes green (tests, Docker builds, audit).
