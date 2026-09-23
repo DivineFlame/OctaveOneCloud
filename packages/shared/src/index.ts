@@ -8,3 +8,5 @@ export * from './redact';
 export * from './webhook-signature';
 export * from './config';
 export * from './roles';
+export * from './crypto';
+export * from './redis';
