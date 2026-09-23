@@ -1,0 +1,1043 @@
+// OctaveOneCloud data model.
+// Money: integer minor units (BigInt) + ISO currency. Never floats.
+// Local status enums are OctaveOneCloud concepts, not provider enums.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Identity & tenancy ─────────────────────────────
+
+enum OrgRole {
+  owner
+  admin
+  billing
+  member
+}
+
+enum OperatorRole {
+  operator_support
+  operator_finance
+  operator_admin
+}
+
+model User {
+  id              String        @id @default(uuid()) @db.Uuid
+  email           String        @unique
+  name            String?
+  passwordHash    String?
+  emailVerifiedAt DateTime?
+  operatorRole    OperatorRole?
+  // TOTP secret encrypted with CREDENTIAL_ENCRYPTION_KEY; required for operators before privileged actions.
+  mfaSecretEnc    String?
+  mfaKeyId        String?
+  mfaEnabledAt    DateTime?
+  disabledAt      DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  memberships     Membership[]
+  sessions        Session[]
+  tokens          UserToken[]
+  invitationsSent Invitation[]  @relation("InvitedBy")
+}
+
+model Session {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  // SHA-256 of the opaque cookie token; the raw token is never stored.
+  tokenHash   String    @unique
+  mfaVerified Boolean   @default(false)
+  ip          String?
+  userAgent   String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+enum UserTokenPurpose {
+  email_verification
+  password_reset
+}
+
+model UserToken {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @db.Uuid
+  purpose    UserTokenPurpose
+  tokenHash  String           @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime         @default(now())
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+model Organization {
+  id             String    @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String    @unique
+  legalName      String?
+  gstin          String?
+  billingEmail   String?
+  billingAddress Json?
+  // GST state code (e.g. "29") used for place-of-supply determination; accountant-reviewed rules apply.
+  stateCode      String?
+  country        String    @default("IN")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  memberships       Membership[]
+  invitations       Invitation[]
+  providerCustomers ProviderCustomerMapping[]
+  quotes            Quote[]
+  orders            Order[]
+  invoices          Invoice[]
+  subscriptions     Subscription[]
+  services          Service[]
+  entitlements      Entitlement[]
+  usageEvents       UsageEvent[]
+  usageCounters     UsageCounter[]
+  usageReservations UsageReservation[]
+  mandates          Mandate[]
+  provisioningJobs  ProvisioningJob[]
+  connectorGrants   ConnectorGrant[]
+  approvals         ApprovalRequest[]
+  tickets           SupportTicket[]
+  paymentOrders     PaymentOrder[]
+}
+
+model Membership {
+  id        String       @id @default(uuid()) @db.Uuid
+  orgId     String       @db.Uuid
+  userId    String       @db.Uuid
+  role      OrgRole
+  createdAt DateTime     @default(now())
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+}
+
+model Invitation {
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @db.Uuid
+  email       String
+  role        OrgRole
+  tokenHash   String       @unique
+  invitedById String       @db.Uuid
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invitedBy   User         @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([orgId, email])
+}
+
+// Explicit mapping of our org to upstream customer/contact identifiers.
+model ProviderCustomerMapping {
+  id                 String       @id @default(uuid()) @db.Uuid
+  orgId              String       @db.Uuid
+  provider           String // "resellerclub" | "cashfree" | app adapter key
+  providerCustomerId String
+  contactIds         Json? // e.g. { registrant: "...", admin: "...", tech: "...", billing: "..." }
+  createdAt          DateTime     @default(now())
+  org                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerCustomerId])
+  @@unique([orgId, provider])
+}
+
+// ───────────────────────────── Catalogue & pricing ─────────────────────────────
+
+enum ProductFamily {
+  domains
+  web_infrastructure
+  business_essentials
+  hosted_apps
+  agentic_bundles
+  managed_services
+}
+
+enum ProductStatus {
+  draft // not purchasable; used for unverified candidates
+  active
+  retired
+}
+
+enum FulfillmentKind {
+  resellerclub
+  app_adapter
+  bundle
+  manual_service
+}
+
+model Product {
+  id              String          @id @default(uuid()) @db.Uuid
+  key             String          @unique
+  name            String
+  family          ProductFamily
+  status          ProductStatus   @default(draft)
+  fulfillment     FulfillmentKind
+  // Adapter key (e.g. "resellerclub.domain", "app.crm"). Must be configured & verified before activation.
+  adapterKey      String?
+  taxCategory     String
+  description     String?
+  // Why the product is draft (e.g. "catalogue not verified", "supplier capability unverified").
+  verificationNote String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  plans           Plan[]
+}
+
+enum PlanTier {
+  starter
+  growth
+  business
+  enterprise
+  standard
+}
+
+model Plan {
+  id        String        @id @default(uuid()) @db.Uuid
+  productId String        @db.Uuid
+  key       String        @unique
+  name      String
+  tier      PlanTier
+  product   Product       @relation(fields: [productId], references: [id])
+  versions  PlanVersion[]
+}
+
+// Immutable once published. Changing features/prices creates a new version.
+model PlanVersion {
+  id          String           @id @default(uuid()) @db.Uuid
+  planId      String           @db.Uuid
+  version     Int
+  publishedAt DateTime?
+  retiredAt   DateTime?
+  supportLevel String?
+  trialDays   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  plan        Plan             @relation(fields: [planId], references: [id])
+  features    PlanFeature[]
+  prices      PriceVersion[]
+  bundleComponents BundleComponent[] @relation("BundleParent")
+  componentOf      BundleComponent[] @relation("BundleChild")
+
+  @@unique([planId, version])
+}
+
+enum MergePolicy {
+  max
+  additive
+  boolean
+}
+
+model Feature {
+  key         String        @id
+  name        String
+  unit        String? // seats, contacts, executions, gb, tokens, minutes
+  mergePolicy MergePolicy
+  metered     Boolean       @default(false)
+  planFeatures PlanFeature[]
+}
+
+model PlanFeature {
+  id            String      @id @default(uuid()) @db.Uuid
+  planVersionId String      @db.Uuid
+  featureKey    String
+  limit         BigInt? // null = boolean feature / unlimited is NOT permitted for AI usage
+  planVersion   PlanVersion @relation(fields: [planVersionId], references: [id])
+  feature       Feature     @relation(fields: [featureKey], references: [key])
+
+  @@unique([planVersionId, featureKey])
+}
+
+model BundleComponent {
+  id                String      @id @default(uuid()) @db.Uuid
+  bundleVersionId   String      @db.Uuid
+  componentVersionId String     @db.Uuid
+  // Components with lower order provision first; dependsOn lists component ids that must be active.
+  provisionOrder    Int         @default(0)
+  dependsOn         String[]    @default([])
+  bundleVersion     PlanVersion @relation("BundleParent", fields: [bundleVersionId], references: [id])
+  componentVersion  PlanVersion @relation("BundleChild", fields: [componentVersionId], references: [id])
+
+  @@unique([bundleVersionId, componentVersionId])
+}
+
+enum PriceKind {
+  subscription
+  registration
+  renewal
+  transfer
+  one_time
+  usage_pack
+}
+
+// Immutable price row. Accepted quotes reference the exact version they priced against.
+model PriceVersion {
+  id               String      @id @default(uuid()) @db.Uuid
+  planVersionId    String      @db.Uuid
+  kind             PriceKind
+  currency         String      @default("INR")
+  // ISO-8601 duration of the customer billing interval (P1M, P1Y) or supplier term (P2Y).
+  billingInterval  String
+  amountMinor      BigInt
+  setupFeeMinor    BigInt      @default(0)
+  // Snapshot of supplier/delivery cost at creation for margin reporting.
+  costMinor        BigInt?
+  costSource       String?
+  isPremium        Boolean     @default(false)
+  effectiveFrom    DateTime    @default(now())
+  effectiveTo      DateTime?
+  createdAt        DateTime    @default(now())
+  planVersion      PlanVersion @relation(fields: [planVersionId], references: [id])
+
+  @@index([planVersionId, kind, currency, billingInterval])
+}
+
+enum SupplyTypeRule {
+  intra_state
+  inter_state
+  export
+  any
+}
+
+// Accountant-reviewable tax configuration; unreviewed rules cannot price live quotes.
+model TaxRule {
+  id          String         @id @default(uuid()) @db.Uuid
+  taxCategory String
+  supplyType  SupplyTypeRule
+  components  Json // [{ name: "CGST", rateBps: 900 }, ...]
+  reviewed    Boolean        @default(false)
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  notes       String?
+  effectiveFrom DateTime     @default(now())
+  effectiveTo DateTime?
+  createdAt   DateTime       @default(now())
+
+  @@index([taxCategory, supplyType])
+}
+
+// ───────────────────────────── Quotes, orders, invoices ─────────────────────────────
+
+enum QuoteStatus {
+  draft
+  accepted
+  expired
+  converted
+  cancelled
+}
+
+model Quote {
+  id            String       @id @default(uuid()) @db.Uuid
+  orgId         String       @db.Uuid
+  status        QuoteStatus  @default(draft)
+  currency      String       @default("INR")
+  supplyType    String
+  subtotalMinor BigInt
+  discountMinor BigInt
+  taxMinor      BigInt
+  totalMinor    BigInt
+  // Full calculation snapshot incl. tax rule ids and component amounts.
+  snapshot      Json
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  createdById   String?      @db.Uuid
+  createdAt     DateTime     @default(now())
+  org           Organization @relation(fields: [orgId], references: [id])
+  lines         QuoteLine[]
+  orders        Order[]
+
+  @@index([orgId, status])
+}
+
+model QuoteLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  quoteId         String   @db.Uuid
+  priceVersionId  String   @db.Uuid
+  description     String
+  quantity        Int
+  unitAmountMinor BigInt
+  setupFeeMinor   BigInt   @default(0)
+  discountMinor   BigInt   @default(0)
+  taxMinor        BigInt
+  totalMinor      BigInt
+  costMinor       BigInt?
+  billingInterval String
+  // Domain name, hosting params etc. Validated per adapter.
+  configuration   Json?
+  quote           Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+}
+
+enum OrderStatus {
+  draft
+  awaiting_payment
+  paid
+  provisioning
+  active
+  delayed
+  needs_attention
+  cancelled
+  expired
+}
+
+model Order {
+  id             String       @id @default(uuid()) @db.Uuid
+  orgId          String       @db.Uuid
+  quoteId        String?      @db.Uuid
+  status         OrderStatus  @default(draft)
+  currency       String       @default("INR")
+  totalMinor     BigInt
+  // Client-supplied idempotency key for checkout creation (scoped per org).
+  idempotencyKey String
+  paidAt         DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  org            Organization @relation(fields: [orgId], references: [id])
+  quote          Quote?       @relation(fields: [quoteId], references: [id])
+  items          OrderItem[]
+  paymentOrders  PaymentOrder[]
+  invoices       Invoice[]
+
+  @@unique([orgId, idempotencyKey])
+  @@index([orgId, status])
+}
+
+model OrderItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  orderId         String   @db.Uuid
+  priceVersionId  String   @db.Uuid
+  quantity        Int
+  totalMinor      BigInt
+  configuration   Json?
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provisioningJobs ProvisioningJob[]
+}
+
+enum InvoiceStatus {
+  draft
+  issued
+  paid
+  void
+}
+
+model Invoice {
+  id             String        @id @default(uuid()) @db.Uuid
+  orgId          String        @db.Uuid
+  orderId        String?       @db.Uuid
+  number         String?       @unique
+  status         InvoiceStatus @default(draft)
+  currency       String        @default("INR")
+  subtotalMinor  BigInt
+  taxMinor       BigInt
+  totalMinor     BigInt
+  taxBreakdown   Json
+  // Buyer/seller billing snapshot (legal name, GSTIN, address, place of supply) at issue time.
+  billingSnapshot Json
+  issuedAt       DateTime?
+  createdAt      DateTime      @default(now())
+  org            Organization  @relation(fields: [orgId], references: [id])
+  order          Order?        @relation(fields: [orderId], references: [id])
+  lines          InvoiceLine[]
+  creditNotes    CreditNote[]
+}
+
+model InvoiceLine {
+  id          String  @id @default(uuid()) @db.Uuid
+  invoiceId   String  @db.Uuid
+  description String
+  quantity    Int
+  amountMinor BigInt
+  taxMinor    BigInt
+  taxDetail   Json
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model CreditNote {
+  id          String   @id @default(uuid()) @db.Uuid
+  invoiceId   String   @db.Uuid
+  number      String?  @unique
+  amountMinor BigInt
+  taxMinor    BigInt
+  reason      String
+  refundId    String?  @db.Uuid
+  issuedAt    DateTime?
+  createdAt   DateTime @default(now())
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+}
+
+// ───────────────────────────── Payments (Cashfree) ─────────────────────────────
+
+enum PaymentOrderStatus {
+  created
+  active
+  paid
+  expired
+  terminated
+}
+
+model PaymentOrder {
+  id              String             @id @default(uuid()) @db.Uuid
+  orgId           String             @db.Uuid
+  orderId         String             @db.Uuid
+  provider        String             @default("cashfree")
+  environment     String // sandbox | production
+  providerOrderId String             @unique
+  amountMinor     BigInt
+  currency        String
+  status          PaymentOrderStatus @default(created)
+  paymentSessionId String?
+  paidAt          DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  org             Organization       @relation(fields: [orgId], references: [id])
+  order           Order              @relation(fields: [orderId], references: [id])
+  attempts        PaymentAttempt[]
+  refunds         Refund[]
+}
+
+enum PaymentAttemptStatus {
+  created
+  pending
+  success
+  failed
+  user_dropped
+  cancelled
+  unknown
+}
+
+// One row per provider payment attempt (cf_payment_id). Failed attempts never overwrite a paid order.
+model PaymentAttempt {
+  id                String               @id @default(uuid()) @db.Uuid
+  paymentOrderId    String               @db.Uuid
+  providerPaymentId String               @unique
+  status            PaymentAttemptStatus
+  amountMinor       BigInt
+  currency          String
+  method            String?
+  feeMinor          BigInt?
+  taxOnFeeMinor     BigInt?
+  providerPayload   Json
+  occurredAt        DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  paymentOrder      PaymentOrder         @relation(fields: [paymentOrderId], references: [id])
+}
+
+enum RefundStatus {
+  requested
+  pending
+  success
+  failed
+  cancelled
+}
+
+model Refund {
+  id               String       @id @default(uuid()) @db.Uuid
+  paymentOrderId   String       @db.Uuid
+  // Our idempotent refund id sent to the provider.
+  refundRequestId  String       @unique
+  providerRefundId String?      @unique
+  amountMinor      BigInt
+  status           RefundStatus @default(requested)
+  reason           String
+  requestedById    String?      @db.Uuid
+  providerPayload  Json?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  paymentOrder     PaymentOrder @relation(fields: [paymentOrderId], references: [id])
+}
+
+model Dispute {
+  id                String   @id @default(uuid()) @db.Uuid
+  providerDisputeId String   @unique
+  providerPaymentId String
+  amountMinor       BigInt
+  status            String
+  providerPayload   Json
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Settlement {
+  id                   String   @id @default(uuid()) @db.Uuid
+  providerSettlementId String   @unique
+  grossMinor           BigInt
+  feesMinor            BigInt
+  taxOnFeesMinor       BigInt
+  netMinor             BigInt
+  settledAt            DateTime?
+  providerPayload      Json
+  createdAt            DateTime @default(now())
+}
+
+enum MandateType {
+  periodic
+  on_demand
+}
+
+enum CollectionOwner {
+  provider_schedule // Cashfree collects on its schedule; our scheduler must not charge.
+  platform_scheduler // We raise charges on an on-demand mandate; provider schedule unused.
+}
+
+enum MandateStatus {
+  initialized
+  pending_authorization
+  active
+  on_hold
+  paused
+  cancelled
+  completed
+  expired
+  failed
+}
+
+model Mandate {
+  id                     String          @id @default(uuid()) @db.Uuid
+  orgId                  String          @db.Uuid
+  providerSubscriptionId String          @unique
+  providerPlanId         String?
+  type                   MandateType
+  collectionOwner        CollectionOwner
+  status                 MandateStatus   @default(initialized)
+  maxAmountMinor         BigInt
+  currency               String          @default("INR")
+  authorizedAt           DateTime?
+  expiresAt              DateTime?
+  // Text/version of consent the customer accepted, shown in-app.
+  consentSnapshot        Json
+  providerPayload        Json?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  org                    Organization    @relation(fields: [orgId], references: [id])
+  subscriptions          Subscription[]
+}
+
+// ───────────────────────────── Subscriptions, services, entitlements ─────────────────────────────
+
+enum SubscriptionStatus {
+  pending_activation
+  trialing
+  active
+  past_due
+  grace
+  suspended
+  cancel_scheduled
+  cancelled
+}
+
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Uuid
+  orgId              String             @db.Uuid
+  planVersionId      String             @db.Uuid
+  priceVersionId     String             @db.Uuid
+  quantity           Int                @default(1)
+  status             SubscriptionStatus @default(pending_activation)
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean            @default(false)
+  // Downgrades are scheduled for renewal: { planVersionId, priceVersionId, quantity, effectiveAt }
+  scheduledChange    Json?
+  graceEndsAt        DateTime?
+  mandateId          String?            @db.Uuid
+  sourceOrderItemId  String?            @db.Uuid
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  org                Organization       @relation(fields: [orgId], references: [id])
+  mandate            Mandate?           @relation(fields: [mandateId], references: [id])
+  renewals           RenewalRun[]
+
+  @@index([orgId, status])
+  @@index([currentPeriodEnd])
+}
+
+// Guards against concurrent/duplicate renewals: one row per subscription per period.
+model RenewalRun {
+  id             String       @id @default(uuid()) @db.Uuid
+  subscriptionId String       @db.Uuid
+  periodStart    DateTime
+  status         String // pending | charged | failed | skipped
+  paymentRef     String?
+  createdAt      DateTime     @default(now())
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@unique([subscriptionId, periodStart])
+}
+
+enum ServiceStatus {
+  pending
+  active
+  expiring
+  expired
+  suspended
+  cancelled
+  needs_attention
+}
+
+// Supplier-backed service (domain, hosting, SSL...). Supplier term is distinct from subscription cycle.
+model Service {
+  id               String        @id @default(uuid()) @db.Uuid
+  orgId            String        @db.Uuid
+  productId        String        @db.Uuid
+  provider         String
+  providerOrderId  String?
+  displayName      String // e.g. domain name
+  status           ServiceStatus @default(pending)
+  supplierExpiresAt DateTime?
+  autoRenew        Boolean       @default(false)
+  // Imported services from the legacy system must not be re-ordered or re-charged.
+  importedFromLegacy Boolean     @default(false)
+  metadata         Json?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  org              Organization  @relation(fields: [orgId], references: [id])
+
+  @@unique([provider, providerOrderId])
+  @@index([orgId])
+  @@index([supplierExpiresAt])
+}
+
+model Entitlement {
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @db.Uuid
+  featureKey  String
+  limit       BigInt?
+  mergePolicy MergePolicy
+  sourceType  String // subscription | usage_pack | manual
+  sourceId    String
+  validFrom   DateTime     @default(now())
+  validTo     DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  org         Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, featureKey, sourceType, sourceId])
+  @@index([orgId, featureKey])
+}
+
+// ───────────────────────────── Usage metering ─────────────────────────────
+
+model UsageEvent {
+  id            String       @id @default(uuid()) @db.Uuid
+  orgId         String       @db.Uuid
+  source        String // e.g. "app.crm", "agent-runtime"
+  sourceEventId String
+  resource      String // feature key being consumed
+  quantity      BigInt
+  occurredAt    DateTime
+  planVersionId String?      @db.Uuid
+  reservationId String?      @db.Uuid
+  createdAt     DateTime     @default(now())
+  org           Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([source, sourceEventId])
+  @@index([orgId, resource, occurredAt])
+}
+
+// Per-period counter updated with conditional SQL so caps hold under concurrency.
+model UsageCounter {
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @db.Uuid
+  resource    String
+  periodStart DateTime
+  periodEnd   DateTime
+  limit       BigInt
+  used        BigInt       @default(0)
+  reserved    BigInt       @default(0)
+  updatedAt   DateTime     @updatedAt
+  org         Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, resource, periodStart])
+}
+
+enum ReservationStatus {
+  reserved
+  settled
+  released
+  expired
+}
+
+model UsageReservation {
+  id         String            @id @default(uuid()) @db.Uuid
+  orgId      String            @db.Uuid
+  counterId  String            @db.Uuid
+  resource   String
+  quantity   BigInt
+  settledQuantity BigInt?
+  status     ReservationStatus @default(reserved)
+  idempotencyKey String        @unique
+  expiresAt  DateTime
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  org        Organization      @relation(fields: [orgId], references: [id])
+}
+
+// ───────────────────────────── Provisioning & supplier journal ─────────────────────────────
+
+enum ProvisioningStatus {
+  queued
+  running
+  active
+  partially_failed
+  failed
+  compensating
+  unknown_outcome
+}
+
+model ProvisioningJob {
+  id             String             @id @default(uuid()) @db.Uuid
+  orgId          String             @db.Uuid
+  orderItemId    String?            @db.Uuid
+  adapterKey     String
+  status         ProvisioningStatus @default(queued)
+  idempotencyKey String             @unique
+  correlationId  String             @default(uuid())
+  lastError      String?
+  attempts       Int                @default(0)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  org            Organization       @relation(fields: [orgId], references: [id])
+  orderItem      OrderItem?         @relation(fields: [orderItemId], references: [id])
+  steps          ProvisioningStep[]
+}
+
+model ProvisioningStep {
+  id          String             @id @default(uuid()) @db.Uuid
+  jobId       String             @db.Uuid
+  name        String
+  status      ProvisioningStatus @default(queued)
+  // Evidence from adapter/provider (redacted) proving the outcome.
+  evidence    Json?
+  error       String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  job         ProvisioningJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, name])
+}
+
+enum SupplierOperationStatus {
+  pending
+  sent
+  succeeded
+  failed
+  unknown // timed out / ambiguous: must reconcile before retry
+  reconciled
+}
+
+// Durable journal for every chargeable/mutating supplier call.
+model SupplierOperation {
+  id               String                  @id @default(uuid()) @db.Uuid
+  operationKey     String                  @unique
+  provider         String
+  action           String
+  chargeable       Boolean
+  status           SupplierOperationStatus @default(pending)
+  requestRedacted  Json
+  responseRedacted Json?
+  providerRef      String?
+  attempts         Int                     @default(0)
+  lastError        String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@index([status])
+}
+
+// ───────────────────────────── Webhooks & outbox ─────────────────────────────
+
+enum InboxStatus {
+  received
+  processing
+  processed
+  ignored
+  failed
+}
+
+model WebhookInbox {
+  id             String      @id @default(uuid()) @db.Uuid
+  provider       String // cashfree
+  channel        String // pg | subscription | adapter:<key>
+  dedupeKey      String
+  eventType      String?
+  rawBody        Bytes
+  headers        Json // redacted
+  signatureValid Boolean
+  status         InboxStatus @default(received)
+  attempts       Int         @default(0)
+  lastError      String?
+  receivedAt     DateTime    @default(now())
+  processedAt    DateTime?
+
+  @@unique([provider, channel, dedupeKey])
+  @@index([status, receivedAt])
+}
+
+enum OutboxStatus {
+  pending
+  dispatched
+  failed
+  dead
+}
+
+model OutboxEvent {
+  id          String       @id @default(uuid()) @db.Uuid
+  topic       String
+  aggregateId String?
+  payload     Json
+  status      OutboxStatus @default(pending)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now())
+  lastError   String?
+  createdAt   DateTime     @default(now())
+
+  @@index([status, availableAt])
+}
+
+model IdempotencyRecord {
+  id          String   @id @default(uuid()) @db.Uuid
+  scope       String
+  key         String
+  requestHash String
+  response    Json?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@unique([scope, key])
+}
+
+// ───────────────────────────── Apps, agents, connectors ─────────────────────────────
+
+enum AdapterStatus {
+  unconfigured
+  sandbox
+  active
+  disabled
+}
+
+model AppAdapter {
+  key             String        @id
+  name            String
+  contractVersion String        @default("2026-09")
+  baseUrl         String?
+  // Name of the secret/env reference, never the secret itself.
+  authRef         String?
+  status          AdapterStatus @default(unconfigured)
+  lastHealthAt    DateTime?
+  lastHealthOk    Boolean?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model ConnectorGrant {
+  id           String       @id @default(uuid()) @db.Uuid
+  orgId        String       @db.Uuid
+  provider     String
+  scopes       String[]
+  tokenEnc     String // AES-256-GCM ciphertext
+  keyId        String
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  createdById  String?      @db.Uuid
+  createdAt    DateTime     @default(now())
+  rotatedAt    DateTime?
+  org          Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, provider])
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+  expired
+  invalidated
+  executed
+}
+
+model ApprovalRequest {
+  id          String         @id @default(uuid()) @db.Uuid
+  orgId       String         @db.Uuid
+  agentRunId  String?
+  actionType  String // outbound_message | publish_campaign | delete | spend
+  // SHA-256 of canonical action inputs; approval is valid only for this exact hash.
+  actionHash  String
+  payload     Json
+  status      ApprovalStatus @default(pending)
+  expiresAt   DateTime
+  decidedById String?        @db.Uuid
+  decidedAt   DateTime?
+  executedAt  DateTime?
+  createdAt   DateTime       @default(now())
+  org         Organization   @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, status])
+}
+
+// ───────────────────────────── Audit & support ─────────────────────────────
+
+model AuditEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  actorType  String // user | operator | system | provider
+  orgId      String?  @db.Uuid
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([action, createdAt])
+}
+
+enum TicketStatus {
+  open
+  pending_customer
+  pending_internal
+  resolved
+  closed
+}
+
+model SupportTicket {
+  id          String           @id @default(uuid()) @db.Uuid
+  orgId       String           @db.Uuid
+  subject     String
+  status      TicketStatus     @default(open)
+  category    String? // e.g. manual_service_request
+  serviceId   String?          @db.Uuid
+  createdById String           @db.Uuid
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  org         Organization     @relation(fields: [orgId], references: [id])
+  messages    SupportMessage[]
+
+  @@index([orgId, status])
+}
+
+model SupportMessage {
+  id        String        @id @default(uuid()) @db.Uuid
+  ticketId  String        @db.Uuid
+  authorId  String        @db.Uuid
+  internal  Boolean       @default(false)
+  body      String
+  createdAt DateTime      @default(now())
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+}

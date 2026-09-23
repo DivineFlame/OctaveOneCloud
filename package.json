@@ -1,0 +1,22 @@
+{
+  "name": "octaveonecloud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "OctaveOneCloud subscription commerce and customer management platform",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --workspace-concurrency=1 run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "db:generate": "pnpm --filter @ooc/db run generate",
+    "db:migrate": "pnpm --filter @ooc/db run migrate:deploy",
+    "db:migrate:dev": "pnpm --filter @ooc/db run migrate:dev",
+    "db:seed": "pnpm --filter @ooc/db run seed",
+    "dev:api": "pnpm --filter @ooc/api run dev",
+    "dev:worker": "pnpm --filter @ooc/worker run dev",
+    "dev:web": "pnpm --filter @ooc/web run dev"
+  },
+  "packageManager": "pnpm@10.28.0"
+}
