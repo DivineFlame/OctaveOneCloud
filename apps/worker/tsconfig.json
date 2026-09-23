@@ -1,0 +1,1 @@
+{ "extends": "../../tsconfig.base.json", "compilerOptions": { "rootDir": ".", "types": ["node"], "declaration": false }, "include": ["src", "test"] }
