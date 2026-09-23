@@ -20,5 +20,11 @@
     "db:check": "node scripts/check-migrations.mjs",
     "operator:create": "node apps/api/dist/cli/create-operator.js"
   },
-  "packageManager": "pnpm@10.28.0"
+  "packageManager": "pnpm@10.28.0",
+  "pnpm": {
+    "overrides": {
+      "mysql2": "^3.23.1",
+      "deepmerge-ts": "^8.0.0"
+    }
+  }
 }
