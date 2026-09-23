@@ -1,0 +1,150 @@
+openapi: 3.1.0
+info:
+  title: OctaveOneCloud API
+  version: 0.1.0
+  description: |
+    Customer and operator API. Browser clients call it through the web app at `/api/v1/...` (same origin).
+    Authentication uses an httpOnly session cookie; state-changing requests must carry a trusted `Origin`.
+    Monetary amounts are integers in minor units (paise). Operator endpoints require an operator role and a
+    session that has passed TOTP MFA.
+servers:
+  - url: /api/v1
+    description: Through the web app proxy
+components:
+  securitySchemes:
+    session: { type: apiKey, in: cookie, name: ooc_session }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+        issues: { type: array, items: { type: object, properties: { path: { type: string }, message: { type: string } } } }
+        blockers: { type: array, items: { type: string } }
+    QuoteLine:
+      type: object
+      required: [priceVersionId, quantity]
+      additionalProperties: false
+      properties:
+        priceVersionId: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 10000 }
+        configuration: { type: object, additionalProperties: true }
+    Quote:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [draft, accepted, expired, converted, cancelled] }
+        supplyType: { type: string, enum: [intra_state, inter_state, export] }
+        subtotalMinor: { type: integer }
+        discountMinor: { type: integer }
+        taxMinor: { type: integer }
+        totalMinor: { type: integer }
+        expiresAt: { type: string, format: date-time }
+        snapshot: { type: object }
+        lines: { type: array, items: { type: object } }
+    OrderView:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [draft, awaiting_payment, paid, provisioning, active, delayed, needs_attention, cancelled, expired] }
+        totalMinor: { type: integer }
+        currency: { type: string }
+        paidAt: { type: [string, 'null'], format: date-time }
+        payment:
+          type: [object, 'null']
+          properties:
+            status: { type: string }
+            paymentSessionId: { type: [string, 'null'] }
+            mode: { type: string, enum: [sandbox, production] }
+        items: { type: array, items: { type: object } }
+  parameters:
+    orgId: { name: orgId, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Error: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+security: [{ session: [] }]
+paths:
+  /auth/register:
+    post:
+      security: []
+      summary: Create an account (sends verification email)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string, format: email }, password: { type: string, minLength: 12 }, name: { type: string } } } } } }
+      responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } }
+  /auth/login:
+    post:
+      security: []
+      summary: Sign in; sets the session cookie
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } } } } }
+      responses: { '200': { description: 'Signed in; `mfaRequired` indicates a TOTP step is needed' }, '401': { $ref: '#/components/responses/Error' } }
+  /auth/logout: { post: { summary: Revoke the current session, responses: { '204': { description: Signed out } } } }
+  /auth/me: { get: { summary: Current user and organisation memberships, responses: { '200': { description: OK }, '401': { $ref: '#/components/responses/Error' } } } }
+  /auth/verify-email: { post: { security: [], summary: Consume an email verification token, responses: { '200': { description: Verified }, '400': { $ref: '#/components/responses/Error' } } } }
+  /auth/password-reset/request: { post: { security: [], summary: Request a reset link (always 202), responses: { '202': { description: Accepted } } } }
+  /auth/password-reset/confirm: { post: { security: [], summary: Set a new password; revokes all sessions, responses: { '200': { description: Reset }, '400': { $ref: '#/components/responses/Error' } } } }
+  /auth/mfa/setup: { post: { summary: Begin TOTP enrolment, responses: { '201': { description: 'otpauth URI' } } } }
+  /auth/mfa/enable: { post: { summary: Confirm TOTP enrolment with a code, responses: { '200': { description: Enabled }, '403': { $ref: '#/components/responses/Error' } } } }
+  /auth/mfa/verify: { post: { summary: Pass MFA for the current session, responses: { '200': { description: Verified }, '403': { $ref: '#/components/responses/Error' } } } }
+  /orgs:
+    post: { summary: Create an organisation (caller becomes owner), responses: { '201': { description: Created } } }
+  /orgs/invitations/accept:
+    post: { summary: Accept an invitation (must match the invited email), responses: { '200': { description: Joined }, '403': { $ref: '#/components/responses/Error' } } }
+  /orgs/{orgId}:
+    get: { summary: Organisation details, parameters: [{ $ref: '#/components/parameters/orgId' }], responses: { '200': { description: OK }, '404': { description: Not found or not a member } } }
+  /orgs/{orgId}/billing:
+    patch: { summary: Update billing / GST details (owner, billing), parameters: [{ $ref: '#/components/parameters/orgId' }], responses: { '200': { description: Updated }, '403': { $ref: '#/components/responses/Error' } } }
+  /orgs/{orgId}/members:
+    get: { summary: List members, parameters: [{ $ref: '#/components/parameters/orgId' }], responses: { '200': { description: OK } } }
+  /orgs/{orgId}/members/{memberId}:
+    patch: { summary: Change a member role (owner, admin), parameters: [{ $ref: '#/components/parameters/orgId' }, { name: memberId, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '200': { description: Updated } } }
+    delete: { summary: Remove a member, parameters: [{ $ref: '#/components/parameters/orgId' }, { name: memberId, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '204': { description: Removed } } }
+  /orgs/{orgId}/invitations:
+    post: { summary: Invite by email (owner, admin), parameters: [{ $ref: '#/components/parameters/orgId' }], responses: { '201': { description: Invited } } }
+  /orgs/{orgId}/quotes:
+    post:
+      summary: Price a basket on the server (owner, billing). Client amounts are rejected.
+      parameters: [{ $ref: '#/components/parameters/orgId' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [lines], properties: { lines: { type: array, minItems: 1, maxItems: 50, items: { $ref: '#/components/schemas/QuoteLine' } } } } } } }
+      responses: { '201': { description: Quote, content: { application/json: { schema: { $ref: '#/components/schemas/Quote' } } } }, '400': { $ref: '#/components/responses/Error' } }
+  /orgs/{orgId}/quotes/{quoteId}:
+    get: { summary: Get a quote, parameters: [{ $ref: '#/components/parameters/orgId' }, { name: quoteId, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '200': { description: OK } } }
+  /orgs/{orgId}/quotes/{quoteId}/accept:
+    post: { summary: Accept a draft, unexpired quote, parameters: [{ $ref: '#/components/parameters/orgId' }, { name: quoteId, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '200': { description: Accepted }, '409': { $ref: '#/components/responses/Error' } } }
+  /orgs/{orgId}/quotes/{quoteId}/checkout:
+    post:
+      summary: Create an order and Cashfree payment session for an accepted quote (idempotent per key)
+      parameters: [{ $ref: '#/components/parameters/orgId' }, { name: quoteId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [idempotencyKey, phone], properties: { idempotencyKey: { type: string, minLength: 8 }, phone: { type: string } } } } } }
+      responses: { '201': { description: Order, content: { application/json: { schema: { $ref: '#/components/schemas/OrderView' } } } }, '400': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' }, '503': { $ref: '#/components/responses/Error' } }
+  /orgs/{orgId}/orders/{orderId}:
+    get: { summary: Order status with honest provisioning states, parameters: [{ $ref: '#/components/parameters/orgId' }, { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OrderView' } } } } } }
+  /orgs/{orgId}/orders/{orderId}/reconcile:
+    post: { summary: Ask the worker to check payment status with Cashfree, parameters: [{ $ref: '#/components/parameters/orgId' }, { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '202': { description: Queued } } }
+  /catalogue/products:
+    get: { security: [], summary: Public catalogue (active products, published versions, effective prices; no costs), responses: { '200': { description: OK } } }
+  /webhooks/cashfree/pg:
+    post:
+      security: []
+      summary: Cashfree Payment Gateway webhooks (signature over raw body)
+      parameters:
+        - { name: x-webhook-signature, in: header, required: true, schema: { type: string } }
+        - { name: x-webhook-timestamp, in: header, required: true, schema: { type: string } }
+        - { name: x-idempotency-header, in: header, required: false, schema: { type: string } }
+      responses: { '200': { description: Stored (or duplicate) }, '401': { description: Invalid signature }, '403': { description: Channel disabled } }
+  /webhooks/cashfree/subscriptions:
+    post: { security: [], summary: Cashfree Subscription webhooks (separate secret; disabled unless enabled), responses: { '200': { description: Stored }, '401': { description: Invalid signature }, '403': { description: Channel disabled } } }
+  /admin/integrations: { get: { summary: Integration state without secrets (operator), responses: { '200': { description: OK } } } }
+  /admin/catalogue/products: { get: { summary: Full catalogue incl. drafts (operator), responses: { '200': { description: OK } } } }
+  /admin/catalogue/products/{id}/activation-blockers: { get: { summary: Reasons a product cannot be sold, parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '200': { description: OK } } } }
+  /admin/catalogue/products/{id}/status: { post: { summary: Set draft/active/retired (activation refused while blockers exist), parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '201': { description: Updated }, '409': { $ref: '#/components/responses/Error' } } } }
+  /admin/catalogue/plans/{planId}/versions: { post: { summary: New draft plan version (copies features), parameters: [{ name: planId, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '201': { description: Created } } } }
+  /admin/catalogue/plan-versions/{id}/features: { put: { summary: Replace features of an unpublished version, parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '200': { description: OK }, '409': { description: Published versions are immutable } } } }
+  /admin/catalogue/plan-versions/{id}/prices: { post: { summary: Add an immutable price version (supersedes the current one), parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '201': { description: Created } } } }
+  /admin/catalogue/plan-versions/{id}/publish: { post: { summary: Publish a priced plan version, parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '201': { description: Published } } } }
+  /admin/tax-rules: { get: { summary: Tax rules (operator_finance), responses: { '200': { description: OK } } } }
+  /admin/tax-rules/{id}/review: { post: { summary: Record accountant review, parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '201': { description: Reviewed } } } }
+  /admin/pricing/candidate: { post: { summary: Internal candidate net price calculator (not a quotation), responses: { '201': { description: Result } } } }
+  /admin/webhooks: { get: { summary: Webhook inbox rows (filter by status), responses: { '200': { description: OK } } } }
+  /admin/provisioning: { get: { summary: Provisioning jobs needing attention, responses: { '200': { description: OK } } } }
+  /admin/supplier-operations: { get: { summary: Supplier journal entries needing attention, responses: { '200': { description: OK } } } }
+  /admin/supplier-operations/{id}/resolve: { post: { summary: Operator resolution of an unknown supplier outcome, parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }], responses: { '201': { description: Resolved } } } }
+  /admin/orders: { get: { summary: Orders needing attention, responses: { '200': { description: OK } } } }
+  /admin/audit: { get: { summary: Audit log, responses: { '200': { description: OK } } } }

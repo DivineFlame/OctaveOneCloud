@@ -16,7 +16,9 @@
     "db:seed": "pnpm --filter @ooc/db run seed",
     "dev:api": "pnpm --filter @ooc/api run dev",
     "dev:worker": "pnpm --filter @ooc/worker run dev",
-    "dev:web": "pnpm --filter @ooc/web run dev"
+    "dev:web": "pnpm --filter @ooc/web run dev",
+    "db:check": "node scripts/check-migrations.mjs",
+    "operator:create": "node apps/api/dist/cli/create-operator.js"
   },
   "packageManager": "pnpm@10.28.0"
 }

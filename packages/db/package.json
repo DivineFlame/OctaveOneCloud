@@ -5,15 +5,14 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "generate": "prisma generate",
-    "build": "prisma generate && tsc -p tsconfig.build.json",
-    "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
+    "generate": "PRISMA_SCHEMA_ENGINE_BINARY=/bin/false prisma generate",
+    "build": "pnpm run generate && tsc -p tsconfig.build.json",
+    "typecheck": "pnpm run generate && tsc -p tsconfig.json --noEmit",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "seed": "tsx prisma/seed.ts",
     "migrate:deploy:wasm": "node --no-warnings scripts/schema-engine-wasm.mjs deploy",
-    "migrate:deploy:fallback": "node --no-warnings scripts/schema-engine-wasm.mjs deploy",
-    "generate:offline": "PRISMA_SCHEMA_ENGINE_BINARY=/bin/false prisma generate"
+    "migrate:deploy:fallback": "node --no-warnings scripts/schema-engine-wasm.mjs deploy"
   },
   "dependencies": {
     "@ooc/shared": "workspace:*",

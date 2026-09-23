@@ -1,0 +1,13 @@
+# Local development: only Postgres and Redis, bound to localhost. Run the apps with `pnpm dev:*`.
+name: octaveonecloud-dev
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    environment: { POSTGRES_USER: ooc, POSTGRES_PASSWORD: ooc, POSTGRES_DB: ooc }
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [devpg:/var/lib/postgresql/data]
+  redis:
+    image: redis:7.4-alpine
+    ports: ["127.0.0.1:6379:6379"]
+volumes:
+  devpg:

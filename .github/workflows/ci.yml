@@ -1,0 +1,44 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16.10-alpine
+        env: { POSTGRES_USER: ooc, POSTGRES_PASSWORD: ooc, POSTGRES_DB: ooc_test }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ooc" --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+    env:
+      TEST_DATABASE_URL: postgresql://ooc:ooc@localhost:5432/ooc_test
+      TEST_REDIS_URL: redis://localhost:6379/15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.28.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ooc/db run generate
+      - name: Build
+        run: |
+          pnpm --filter @ooc/shared run build
+          pnpm --filter @ooc/db run build
+          pnpm --filter @ooc/integrations run build
+          pnpm --filter @ooc/api run build
+          pnpm --filter @ooc/worker run build
+          pnpm --filter @ooc/web run build
+      - run: pnpm -r run typecheck
+      - run: pnpm -r run test
+      - name: Verify migrations match schema.prisma
+        run: pnpm db:check

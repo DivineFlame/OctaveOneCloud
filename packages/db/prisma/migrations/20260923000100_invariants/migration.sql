@@ -1,3 +1,4 @@
+-- ooc:custom-sql (hand-written; not generated from schema.prisma)
 -- Database-level monetary and access invariants that Prisma schema syntax cannot express.
 -- Hand-written. Prisma does not track CHECK constraints, so these survive future diffs.
 
