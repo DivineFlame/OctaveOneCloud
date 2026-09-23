@@ -6,9 +6,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16.10-alpine
@@ -24,14 +29,17 @@ jobs:
       TEST_REDIS_URL: redis://localhost:6379/15
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 10.28.0 }
+      - name: Refuse committed secrets and dumps
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then echo "::error::.env file is tracked"; exit 1; fi
+          if git ls-files | grep -E '\.(rdb|dump|sql\.gz|pem|key)$'; then echo "::error::dump/key file is tracked"; exit 1; fi
+      - uses: pnpm/action-setup@v4   # version comes from "packageManager" in package.json
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with: { node-version-file: .nvmrc, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ooc/db run generate
       - name: Build
         run: |
+          pnpm --filter @ooc/db run generate
           pnpm --filter @ooc/shared run build
           pnpm --filter @ooc/db run build
           pnpm --filter @ooc/integrations run build
@@ -40,5 +48,29 @@ jobs:
           pnpm --filter @ooc/web run build
       - run: pnpm -r run typecheck
       - run: pnpm -r run test
-      - name: Verify migrations match schema.prisma
+      - name: Migrations match schema.prisma
         run: pnpm db:check
+      - name: Dependency audit (production)
+        run: pnpm audit --prod --audit-level high
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      matrix:
+        target: [api, worker, migrate, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.target }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: ${{ matrix.target }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+      - name: Compose file is valid
+        if: matrix.target == 'api'
+        run: POSTGRES_PASSWORD=x REDIS_PASSWORD=y docker compose -f docker-compose.yml config --quiet

@@ -13,9 +13,6 @@ import fs from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SchemaEngine } from '@prisma/schema-engine-wasm';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { bindMigrationAwareSqlAdapterFactory } from '@prisma/driver-adapter-utils';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -102,6 +99,10 @@ async function deploy() {
 
 const [cmd, arg] = process.argv.slice(2);
 if (cmd === 'diff-empty') {
+  // Loaded lazily: `deploy` must work in the slim runtime image without dev-only packages.
+  const { SchemaEngine } = await import('@prisma/schema-engine-wasm');
+  const { PrismaPg } = await import('@prisma/adapter-pg');
+  const { bindMigrationAwareSqlAdapterFactory } = await import('@prisma/driver-adapter-utils');
   const content = fs.readFileSync(schemaPath, 'utf8');
   const adapter = bindMigrationAwareSqlAdapterFactory(new PrismaPg({ connectionString: url }));
   const engine = await SchemaEngine.new({ datamodels: [[schemaPath, content]] }, () => {}, adapter);

@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # Multi-target image for the OctaveOneCloud monorepo: targets api, worker, web, migrate.
 # Pin the base image by digest at release time (docs/runbooks/deployment.md).
 ARG NODE_IMAGE=node:22.22.2-bookworm-slim
@@ -31,42 +30,45 @@ RUN pnpm --filter @ooc/db run generate \
  && pnpm --filter @ooc/api run build \
  && pnpm --filter @ooc/worker run build \
  && pnpm --filter @ooc/web run build
+# Self-contained production bundles (prod dependencies only, workspace packages copied in).
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm --filter @ooc/api deploy --prod --legacy /out/api \
+ && pnpm --filter @ooc/worker deploy --prod --legacy /out/worker \
+ && pnpm --filter @ooc/db deploy --prod --legacy /out/db
 
 # ── Runtime images run as the unprivileged "node" user ──
+# PID 1 signal handling: run with `init: true` (docker-compose.yml) or `docker run --init`.
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-WORKDIR /repo
-RUN apt-get update && apt-get install -y --no-install-recommends tini ca-certificates && rm -rf /var/lib/apt/lists/*
-ENTRYPOINT ["/usr/bin/tini", "--"]
+WORKDIR /app
 
 FROM runtime AS api
-COPY --from=build --chown=node:node /repo /repo
+COPY --from=build --chown=node:node /out/api /app
 USER node
 EXPOSE 4000
-HEALTHCHECK --interval=15s --timeout=3s --retries=5 CMD node -e "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "apps/api/dist/main.js"]
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 CMD ["node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+CMD ["node", "dist/main.js"]
 
 FROM runtime AS worker
-COPY --from=build --chown=node:node /repo /repo
+COPY --from=build --chown=node:node /out/worker /app
 USER node
-CMD ["node", "apps/worker/dist/main.js"]
+CMD ["node", "dist/main.js"]
 
 FROM runtime AS migrate
-COPY --from=build --chown=node:node /repo /repo
+COPY --from=build --chown=node:node /out/db /app
 USER node
-WORKDIR /repo/packages/db
-# MIGRATE_MODE=native uses `prisma migrate deploy` (downloads the schema engine);
-# MIGRATE_MODE=fallback applies the same migrations via node-postgres (no binary download).
-ENV MIGRATE_MODE=native
-CMD ["sh", "-c", "if [ \"$MIGRATE_MODE\" = fallback ]; then node --no-warnings scripts/schema-engine-wasm.mjs deploy; else node_modules/.bin/prisma migrate deploy; fi"]
+# MIGRATE_MODE=fallback (default): applies prisma/migrations with node-postgres and records them in
+#   _prisma_migrations exactly like `prisma migrate deploy` (no engine download at deploy time).
+# MIGRATE_MODE=native: runs `prisma migrate deploy` (downloads Prisma's schema engine).
+# SEED_DRAFT_CATALOGUE=true additionally runs the idempotent draft-catalogue seed (first deployment only).
+ENV MIGRATE_MODE=fallback SEED_DRAFT_CATALOGUE=false
+CMD ["sh", "-c", "set -e; if [ \"$MIGRATE_MODE\" = native ]; then node_modules/.bin/prisma migrate deploy; else node --no-warnings scripts/schema-engine-wasm.mjs deploy; fi; if [ \"$SEED_DRAFT_CATALOGUE\" = true ]; then node dist/seed.js; fi"]
 
 FROM runtime AS web
-WORKDIR /app
 COPY --from=build --chown=node:node /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=node:node /repo/apps/web/public ./apps/web/public
 USER node
 ENV PORT=3000 HOSTNAME=0.0.0.0
 EXPOSE 3000
-HEALTHCHECK --interval=15s --timeout=3s --retries=5 CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 CMD ["node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 CMD ["node", "apps/web/server.js"]

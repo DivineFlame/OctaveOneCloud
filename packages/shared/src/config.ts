@@ -16,6 +16,8 @@ const hexKey = z
 
 export const baseEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /** Deployment tier. A production build can run as `staging` to use provider sandboxes. */
+  APP_ENV: z.enum(['development', 'staging', 'production']).optional(),
   APP_URL: z.url(),
   API_URL: z.url(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -69,6 +71,8 @@ export const baseEnvSchema = z.object({
 
   OTEL_EXPORTER_OTLP_ENDPOINT: optionalString,
   SENTRY_DSN: optionalString,
+  /** Lets the production build run over plain HTTP on localhost only (docker-compose.local.yml). */
+  OOC_ALLOW_INSECURE_LOCAL: bool,
 });
 
 export type AppConfig = z.infer<typeof baseEnvSchema>;
@@ -103,15 +107,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       if (!c[k]) problems.push(`${k} is required when CASHFREE_ENV=${c.CASHFREE_ENV}`);
     }
   }
-  if (c.NODE_ENV === 'production') {
-    if (!c.APP_URL.startsWith('https://')) problems.push('APP_URL must use https in production');
-    if (!c.COOKIE_SECURE) problems.push('COOKIE_SECURE must be true in production');
-    if (c.CASHFREE_ENV === 'sandbox') problems.push('CASHFREE_ENV=sandbox is not allowed in production');
-  } else if (c.CASHFREE_ENV === 'production') {
-    problems.push('CASHFREE_ENV=production is only allowed when NODE_ENV=production');
+  if (c.SMTP_URL) {
+    if (!/^smtps?:\/\//.test(c.SMTP_URL)) problems.push('SMTP_URL must start with smtp:// or smtps://');
+    if (!c.MAIL_FROM) problems.push('MAIL_FROM is required when SMTP_URL is set');
   }
+  if (c.NODE_ENV === 'production') {
+    const localOnly = c.OOC_ALLOW_INSECURE_LOCAL && ['localhost', '127.0.0.1'].includes(new URL(c.APP_URL).hostname);
+    if (c.OOC_ALLOW_INSECURE_LOCAL && !localOnly) problems.push('OOC_ALLOW_INSECURE_LOCAL is only permitted with a localhost APP_URL');
+    if (!localOnly && !c.APP_URL.startsWith('https://')) problems.push('APP_URL must use https in production');
+    if (!localOnly && !c.COOKIE_SECURE) problems.push('COOKIE_SECURE must be true in production');
+    if (!c.SMTP_URL) problems.push('SMTP_URL is required in production (verification, password reset and invitation emails)');
+  }
+  const tier = appEnv(c);
+  if (tier === 'production' && c.CASHFREE_ENV === 'sandbox') problems.push('CASHFREE_ENV=sandbox is not allowed when APP_ENV=production (use APP_ENV=staging)');
+  if (tier !== 'production' && c.CASHFREE_ENV === 'production') problems.push('CASHFREE_ENV=production is only allowed when APP_ENV=production');
+  if (tier !== 'production' && c.RESELLERCLUB_ENV === 'live') problems.push('RESELLERCLUB_ENV=live is only allowed when APP_ENV=production');
   if (problems.length) throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   return c;
+}
+
+/** Effective deployment tier: APP_ENV if set, otherwise production for NODE_ENV=production, else development. */
+export function appEnv(c: Pick<AppConfig, 'APP_ENV' | 'NODE_ENV'>): 'development' | 'staging' | 'production' {
+  return c.APP_ENV ?? (c.NODE_ENV === 'production' ? 'production' : 'development');
 }
 
 export function cashfreeBaseUrl(env: AppConfig['CASHFREE_ENV']): string | null {

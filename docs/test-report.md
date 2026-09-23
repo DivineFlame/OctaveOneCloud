@@ -7,9 +7,12 @@ Run from a **fresh clone** with `pnpm install --frozen-lockfile`.
 |---|---|---|
 | Build (all packages & apps, incl. Next.js production build) | see CI workflow | ✅ pass |
 | Typecheck | `pnpm -r run typecheck` | ✅ pass |
-| Unit + integration + e2e tests | `pnpm -r run test` | ✅ **71 passed**, 0 failed |
+| Unit + integration + e2e tests | `pnpm -r run test` | ✅ **74 passed**, 0 failed |
 | Migration drift | `pnpm db:check` | ✅ migrations match `schema.prisma` (probe column correctly detected as drift) |
 | Dependency audit (prod) | `pnpm audit --prod` | ✅ no known vulnerabilities (after `mysql2`/`deepmerge-ts` overrides for Prisma CLI transitive deps) |
+| Docker images (api, worker, migrate, web) | `docker build --target …` | ✅ built (stand-in base images; official images are built in CI) |
+| Full Compose stack | `docker compose -f docker-compose.yml -f docker-compose.local.yml up` | ✅ healthy; migrate+seed, SMTP delivery, register → verify email → org → password reset via browser |
+| Webhook through web proxy | signed POST to `/api/v1/webhooks/cashfree/pg` | ✅ raw body preserved, signature verified; bad signature → 401 |
 | Browser smoke (Playwright/Chromium) | register → dashboard → create org → save billing; desktop + 390px mobile | ✅ no console errors |
 
 ## Coverage by risk (from the implementation prompt)

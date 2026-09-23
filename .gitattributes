@@ -1,0 +1,11 @@
+# Normalise line endings so shell scripts and Dockerfiles work when committed from Windows.
+* text=auto eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf
+Dockerfile text eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.wasm binary
+pnpm-lock.yaml -diff linguist-generated
+packages/db/prisma/migrations/**/migration.sql linguist-generated=false

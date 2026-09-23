@@ -1,1 +1,1 @@
-{ "extends": "../../tsconfig.base.json", "compilerOptions": { "rootDir": ".", "types": ["node"], "noUncheckedIndexedAccess": false }, "include": ["src", "prisma/seed.ts", "prisma.config.ts"] }
+{ "extends": "../../tsconfig.base.json", "compilerOptions": { "rootDir": ".", "types": ["node"], "noUncheckedIndexedAccess": false }, "include": ["src", "prisma.config.ts"] }

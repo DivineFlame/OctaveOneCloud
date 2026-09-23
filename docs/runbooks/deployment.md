@@ -1,6 +1,8 @@
 # Deployment & rollback (Dokploy / Docker Compose)
 
-> Untested in this build environment (container registry unreachable). Rehearse on staging first.
+Step-by-step Dokploy setup: **[docs/deploy-dokploy.md](../deploy-dokploy.md)**. This page covers release discipline.
+
+Server egress IP(s) allowlisted at ResellerClub: _record here_
 
 ## First deployment (staging)
 

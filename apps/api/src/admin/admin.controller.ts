@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaClient, Prisma } from '@ooc/db';
-import { AppConfig } from '@ooc/shared';
+import { AppConfig, appEnv } from '@ooc/shared';
 import { APP_CONFIG } from '../config/config.module';
 import { PRISMA } from '../common/prisma.module';
 import { ZodPipe } from '../common/zod.pipe';
@@ -25,6 +25,7 @@ export class AdminController {
   @Get('integrations')
   async integrations() {
     return {
+      appEnv: appEnv(this.config),
       resellerclub: { env: this.config.RESELLERCLUB_ENV, liveMutationsAllowed: this.config.RESELLERCLUB_ALLOW_LIVE_MUTATIONS, capabilities: RESELLERCLUB_CAPABILITIES },
       cashfree: { env: this.config.CASHFREE_ENV, apiVersion: this.config.CASHFREE_API_VERSION, webhookSecretConfigured: Boolean(this.config.CASHFREE_WEBHOOK_SECRET), subscriptionsEnabled: this.config.CASHFREE_SUBSCRIPTIONS_ENABLED },
       smtpConfigured: Boolean(this.config.SMTP_URL),

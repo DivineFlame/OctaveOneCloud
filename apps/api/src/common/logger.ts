@@ -8,7 +8,10 @@ type Level = (typeof LEVELS)[number];
 export class JsonLogger implements LoggerService {
   constructor(private readonly minLevel: Level = 'info', private readonly service = 'api') {}
 
-  private write(level: Level, message: unknown, context?: string, extra?: unknown) {
+  private write(level: Level, rawMessage: unknown, context?: string, extra?: unknown) {
+    // Errors have no enumerable fields; serialise them explicitly so failures are never logged as {}.
+    const message = rawMessage instanceof Error ? rawMessage.message : rawMessage;
+    if (rawMessage instanceof Error && extra === undefined) extra = { name: rawMessage.name, stack: rawMessage.stack };
     if (LEVELS.indexOf(level) > LEVELS.indexOf(this.minLevel)) return;
     const entry = {
       ts: new Date().toISOString(),

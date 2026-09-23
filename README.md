@@ -29,7 +29,7 @@ cp .env.example .env                       # then generate CREDENTIAL_ENCRYPTION
 docker compose -f docker-compose.dev.yml up -d
 pnpm install
 pnpm db:generate
-pnpm db:migrate                            # or: pnpm --filter @ooc/db migrate:deploy:fallback
+pnpm --filter @ooc/db migrate:deploy:fallback   # or `pnpm db:migrate` where Prisma's engine can be downloaded
 pnpm db:seed                               # draft catalogue only — nothing is purchasable
 pnpm -r build
 pnpm dev:api    # http://localhost:4000
@@ -45,6 +45,25 @@ OOC_OPERATOR_PASSWORD='a-long-password' pnpm operator:create --email you@example
 
 To exercise provisioning locally without a real app, set `OOC_ENABLE_REFERENCE_ADAPTERS=app.crm` for the worker
 (ignored in production).
+
+## Production-like run on your machine
+
+```bash
+node scripts/generate-secrets.mjs > .env
+cat >> .env <<'ENV'
+APP_URL=http://localhost:3000
+API_URL=http://localhost:3000/api
+SMTP_URL=smtp://<your-smtp-host>:587
+MAIL_FROM=OctaveOneCloud <no-reply@example.com>
+SEED_DRAFT_CATALOGUE=true
+ENV
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+```
+
+## Deploy (Dokploy)
+
+See **[docs/deploy-dokploy.md](docs/deploy-dokploy.md)** — one Compose service built from this repository,
+environment from [`deploy/dokploy.env.example`](deploy/dokploy.env.example), domain on the `web` service (port 3000).
 
 ## Tests
 
@@ -64,3 +83,7 @@ pnpm db:check            # migrations ↔ schema.prisma drift check
 - Agent actions needing approval bind to a hash of the exact inputs and are single-use.
 
 See [`docs/architecture.md`](docs/architecture.md) and [`docs/runbooks/`](docs/runbooks).
+
+## Licence
+
+Proprietary — all rights reserved unless a licence file is added. Keep the repository private.

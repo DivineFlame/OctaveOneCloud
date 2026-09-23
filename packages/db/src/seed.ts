@@ -6,7 +6,7 @@
  *  - Tax rules are seeded unreviewed; live quotes refuse unreviewed rules until an accountant signs off.
  * Idempotent: safe to run repeatedly.
  */
-import { createPrismaClient, FulfillmentKind, MergePolicy, PlanTier, ProductFamily } from '../src';
+import { createPrismaClient, FulfillmentKind, MergePolicy, PlanTier, ProductFamily } from './index';
 
 const db = createPrismaClient(process.env.DATABASE_URL!);
 

@@ -8,3 +8,9 @@ coverage/
 !.env.example
 packages/db/src/generated/
 .turbo/
+
+# Local service data
+dump.rdb
+*.rdb
+*.tsbuildinfo
+next-env.d.ts

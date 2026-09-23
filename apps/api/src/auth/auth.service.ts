@@ -37,7 +37,7 @@ export class AuthService {
   private async issueEmailVerification(user: User) {
     const token = randomToken();
     await this.db.userToken.create({ data: { userId: user.id, purpose: 'email_verification', tokenHash: sha256Hex(token), expiresAt: new Date(Date.now() + VERIFY_TTL_MS) } });
-    await this.mail.send({ to: user.email, subject: 'Verify your OctaveOneCloud email', text: `${this.config.APP_URL}/verify-email?token=${token}` });
+    await this.mail.trySend({ to: user.email, subject: 'Verify your OctaveOneCloud email', text: `${this.config.APP_URL}/verify-email?token=${token}` });
   }
 
   async verifyEmail(token: string) {
@@ -96,7 +96,7 @@ export class AuthService {
     if (!user || user.disabledAt) return; // no account enumeration
     const token = randomToken();
     await this.db.userToken.create({ data: { userId: user.id, purpose: 'password_reset', tokenHash: sha256Hex(token), expiresAt: new Date(Date.now() + RESET_TTL_MS) } });
-    await this.mail.send({ to: user.email, subject: 'Reset your OctaveOneCloud password', text: `${this.config.APP_URL}/reset-password?token=${token}` });
+    await this.mail.trySend({ to: user.email, subject: 'Reset your OctaveOneCloud password', text: `${this.config.APP_URL}/reset-password?token=${token}` });
   }
 
   async confirmPasswordReset(token: string, password: string, ip: string | null) {

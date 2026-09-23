@@ -1,0 +1,12 @@
+# Run the production stack on your own machine (http://localhost:3000):
+#   node scripts/generate-secrets.mjs > .env
+#   then append APP_URL=http://localhost:3000, API_URL=http://localhost:3000/api, SMTP_URL, MAIL_FROM (see docs/deploy-dokploy.md)
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+# OOC_ALLOW_INSECURE_LOCAL permits plain HTTP only when APP_URL is localhost. Never set it on a server.
+services:
+  api:
+    environment: { OOC_ALLOW_INSECURE_LOCAL: "true" }
+  worker:
+    environment: { OOC_ALLOW_INSECURE_LOCAL: "true" }
+  web:
+    ports: ["127.0.0.1:${WEB_PORT:-3000}:3000"]

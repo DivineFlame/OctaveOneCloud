@@ -8,7 +8,7 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
-    seed: 'tsx prisma/seed.ts',
+    seed: 'tsx src/seed.ts',
   },
   // `prisma generate` does not need a database, so builds (Docker, CI) work without DATABASE_URL.
   // Commands that do need one (migrate, db) fail clearly against the placeholder host.

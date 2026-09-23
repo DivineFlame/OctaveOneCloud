@@ -68,7 +68,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
       {error && <p className="error" role="alert">{error}</p>}
       <button className="btn" type="submit" disabled={busy}>{busy ? 'Please wait…' : needsMfa ? 'Verify' : mode === 'login' ? 'Sign in' : 'Create account'}</button>
       <p className="muted">
-        {mode === 'login' ? <>New here? <Link href="/register">Create an account</Link></> : <>Already have an account? <Link href="/login">Sign in</Link></>}
+        {mode === 'login' ? <>New here? <Link href="/register">Create an account</Link> · <Link href="/forgot-password">Forgot password?</Link></> : <>Already have an account? <Link href="/login">Sign in</Link></>}
       </p>
     </form>
   );

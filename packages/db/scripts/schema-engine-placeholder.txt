@@ -1,0 +1,1 @@
+Placeholder so 'prisma generate' does not download the native schema engine. Never executed.

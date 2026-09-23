@@ -34,7 +34,7 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Admin console (integrations, catalogue readiness) | ✅ | Minimal UI |
 | Structured redacted logs, health/readiness | ✅ | |
 | OIDC login with existing identity provider | ⬜ | Config placeholders only |
-| SMTP transport | ⬜ | Dev capture only; production refuses to drop mail |
+| SMTP transport | ✅ | nodemailer via `SMTP_URL`; required in production |
 | Invoice numbering / PDF / credit-note issuing | ⬜ | Models exist; issuing flow not built |
 
 ## Stage 2 — Paid purchase
@@ -78,7 +78,7 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 - [ ] Production webhook URLs and secrets configured
 - [ ] Every product for sale has verified capabilities and prices
 - [ ] Accountant sign-off on tax rules and invoice format
-- [ ] Docker images built and deployed to staging via Dokploy
+- [ ] Deployed to a staging Dokploy project (`APP_ENV=staging`) and smoke-tested
 - [ ] Backup restore rehearsal recorded
 - [ ] Load test with measured capacity recorded
 - [ ] Security review (dependency audit, headers, auth flows, pen test)
@@ -88,7 +88,11 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 
 ## Environment limitations during this build
 
-- Docker images could not be built here (Docker Hub blocked); Dockerfile and Compose are untested.
+- Docker Hub was unreachable, so the four images were built and the full `docker-compose.yml` stack was run with
+  locally assembled stand-ins for the `node`, `postgres` and `redis` base images (same Node 22.22.2 / PostgreSQL 16 /
+  Redis binaries). Migrations, seed, API, worker, web, SMTP email delivery, registration → verification →
+  org creation → password reset, and webhook raw-body signature verification through the web proxy all passed.
+  The first build against the official images happens in GitHub Actions (`docker` job) and on Dokploy.
 - Prisma's native schema-engine download was blocked; migrations were generated and applied with Prisma's own Wasm
   engine (same commit) via `packages/db/scripts/schema-engine-wasm.mjs`. Standard `prisma migrate` works where
   `binaries.prisma.sh` is reachable.
