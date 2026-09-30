@@ -2,14 +2,22 @@
 #
 # Dokploy: create a "Compose" service from this repository (compose path ./docker-compose.yml), paste the
 # variables from deploy/dokploy.env.example into the Environment tab, enable "Isolated Deployments",
-# and add your domain on the `web` service, port 3000. Full guide: docs/deploy-dokploy.md
+# and add your domain on the `web` service, port 3000. Full guide: docs/deploy-vps.md
 #
 # Only `web` is meant to be routed publicly (through Dokploy's Traefik). Postgres, Redis, the API and the
 # worker publish no ports. The web container proxies /api/* to the API over the internal network.
+# PostgreSQL runs inside this stack (pgdata volume) with nightly verified dumps (db-backup → pgbackups volume).
 # A single host is NOT high availability: see docs/runbooks/backup-restore.md.
 name: octaveonecloud
 
+x-logging: &logging
+  # Rotate container logs so a busy VPS disk never fills up.
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
 x-app: &app
+  <<: *logging
   init: true
   restart: unless-stopped
   env_file:
@@ -24,12 +32,37 @@ x-db-urls: &db-urls
 
 services:
   postgres:
+    <<: *logging
     image: postgres:16.10-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ooc
       POSTGRES_DB: ooc
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --data-checksums"
+    # Sized for a 4–8 GB VPS; override the PG_* variables in Dokploy for bigger servers.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-1536MB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-8MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-128MB}
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-100}
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - log_min_duration_statement=${PG_LOG_SLOW_MS:-1000}
+      - -c
+      - idle_in_transaction_session_timeout=60000
+      - -c
+      - timezone=UTC
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ooc -d ooc"]
@@ -37,8 +70,63 @@ services:
       timeout: 5s
       retries: 10
     shm_size: 256mb
+    stop_grace_period: 60s
+
+  # Nightly logical backups (pg_dump custom format) into the `pgbackups` volume, verified after each run.
+  # For off-site copies, add a Dokploy "Volume Backup" of pgbackups to S3 (docs/deploy-vps.md, step 9).
+  db-backup:
+    <<: *logging
+    image: postgres:16.10-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: ooc
+      PGDATABASE: ooc
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-21}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_ON_START: ${BACKUP_ON_START:-true}
+    volumes: [pgbackups:/backups]
+    depends_on:
+      postgres: { condition: service_healthy }
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        backup() {
+          ts=$$(date -u +%Y%m%dT%H%M%SZ)
+          file="/backups/ooc-$$ts.dump"
+          echo "[db-backup] $$ts starting pg_dump"
+          if pg_dump -Fc -Z 6 -f "$$file.partial" && pg_restore --list "$$file.partial" >/dev/null; then
+            mv "$$file.partial" "$$file"
+            date -u +%s > /backups/.last_success
+            echo "[db-backup] ok $$file ($$(du -h "$$file" | cut -f1))"
+            # Prune only after a successful dump, so failures never delete the last good backups.
+            find /backups -name 'ooc-*.dump' -mtime +"$$BACKUP_KEEP_DAYS" -exec rm -f {} + || true
+          else
+            rm -f "$$file.partial"
+            echo "[db-backup] FAILED" >&2
+          fi
+        }
+        [ "$$BACKUP_ON_START" = "true" ] && backup
+        while true; do
+          now=$$(date -u +%s)
+          wait=$$(( (BACKUP_HOUR_UTC * 3600 - now % 86400 + 86400) % 86400 ))
+          [ "$$wait" -lt 60 ] && wait=$$((wait + 86400))
+          echo "[db-backup] next run in $$wait s"
+          sleep "$$wait"
+          backup
+        done
+    healthcheck:
+      # Unhealthy when no successful dump in the last 26 hours.
+      test: ["CMD-SHELL", "[ -f /backups/.last_success ] && [ $$(( $$(date -u +%s) - $$(cat /backups/.last_success) )) -lt 93600 ]"]
+      interval: 5m
+      timeout: 10s
+      start_period: 10m
+      retries: 1
 
   redis:
+    <<: *logging
     image: redis:7.4-alpine
     restart: unless-stopped
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
@@ -95,6 +183,7 @@ services:
       migrate: { condition: service_completed_successfully }
 
   web:
+    <<: *logging
     init: true
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
@@ -114,4 +203,5 @@ services:
 
 volumes:
   pgdata:
+  pgbackups:
   redisdata:

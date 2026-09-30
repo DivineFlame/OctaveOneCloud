@@ -33,6 +33,8 @@ jobs:
         run: |
           if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then echo "::error::.env file is tracked"; exit 1; fi
           if git ls-files | grep -E '\.(rdb|dump|sql\.gz|pem|key)$'; then echo "::error::dump/key file is tracked"; exit 1; fi
+      - name: Lint deployment scripts
+        run: shellcheck deploy/vps/*.sh deploy/postgres/*.sh
       - uses: pnpm/action-setup@v4   # version comes from "packageManager" in package.json
       - uses: actions/setup-node@v4
         with: { node-version-file: .nvmrc, cache: pnpm }

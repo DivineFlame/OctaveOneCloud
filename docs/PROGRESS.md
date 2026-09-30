@@ -33,6 +33,8 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Quotes: server-side pricing, frozen snapshot, expiry, mixed-term grouping | ✅ | |
 | Admin console (integrations, catalogue readiness) | ✅ | Minimal UI |
 | Structured redacted logs, health/readiness | ✅ | |
+| VPS bootstrap (Ubuntu 24.04 hardening + Dokploy install) | 🟡 | `deploy/vps/setup-ubuntu.sh`; shellcheck-clean, not yet run on a real VPS |
+| PostgreSQL in stack: tuning, nightly verified dumps, restore/drill tooling | ✅ | `db-backup` service + `deploy/postgres/restore.sh`; backup, drill and full replace tested on the Compose stack |
 | OIDC login with existing identity provider | ⬜ | Config placeholders only |
 | SMTP transport | ✅ | nodemailer via `SMTP_URL`; required in production |
 | Invoice numbering / PDF / credit-note issuing | ⬜ | Models exist; issuing flow not built |
@@ -79,7 +81,7 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 - [ ] Every product for sale has verified capabilities and prices
 - [ ] Accountant sign-off on tax rules and invoice format
 - [ ] Deployed to a staging Dokploy project (`APP_ENV=staging`) and smoke-tested
-- [ ] Backup restore rehearsal recorded
+- [ ] Backup restore rehearsal recorded (`restore.sh drill` on the VPS + one off-site copy)
 - [ ] Load test with measured capacity recorded
 - [ ] Security review (dependency audit, headers, auth flows, pen test)
 - [ ] Reconciliation sign-off (payments ↔ orders ↔ supplier records)

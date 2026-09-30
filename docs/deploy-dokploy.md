@@ -11,6 +11,9 @@ Internet ──HTTPS──> Dokploy Traefik ──> web:3000 ──/api/*──>
 
 ## 0. Server requirements
 
+> New server? Start with **[deploy-vps.md](deploy-vps.md)** — it prepares Ubuntu 24.04, installs Dokploy and
+> links back here for the app steps.
+
 - A Dokploy server (Docker 24+ with Compose v2.24+). **4 GB RAM minimum** — the Next.js build needs ~2 GB;
   8 GB is more comfortable. 2 vCPU, 40 GB disk.
 - A domain pointing (A/AAAA record) at the server, e.g. `app.example.com`.
@@ -82,7 +85,8 @@ Click **Deploy**. Order of events (see the Logs tab):
 
 1. Images build on the server (first build ~5–10 min).
 2. `postgres` and `redis` become healthy.
-3. `migrate` applies `packages/db/prisma/migrations` and exits `0` (and seeds the draft catalogue if enabled).
+3. `migrate` applies `packages/db/prisma/migrations` and exits `0` (and seeds the draft catalogue if enabled);
+   `db-backup` takes its first dump.
 4. `api` and `worker` start; `api` becomes healthy (`/health`).
 5. `web` starts once `api` is healthy.
 
@@ -103,8 +107,9 @@ Sign in at `https://app.example.com/login`, open **Dashboard → Security**, ena
 
 ## 8. Backups
 
-- Dokploy → service → **Volume Backups**: schedule daily backups of the `pgdata` volume to an S3 destination, **or**
-  run `pg_dump` as described in `docs/runbooks/backup-restore.md` (preferred: consistent logical dumps).
+- The `db-backup` service dumps PostgreSQL nightly into the `pgbackups` volume (verified, 14-day retention).
+- Dokploy → service → **Volume Backups**: copy `<appName>_pgbackups` (not `pgdata`) to an S3 destination daily.
+  Details and restore commands: `docs/runbooks/backup-restore.md`.
 - Store `CREDENTIAL_ENCRYPTION_KEY` and the other secrets in a password manager.
 - Rehearse a restore on a second Dokploy project before launch.
 

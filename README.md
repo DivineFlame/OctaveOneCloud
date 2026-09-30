@@ -60,10 +60,13 @@ ENV
 docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
-## Deploy (Dokploy)
+## Deploy (VPS + Dokploy)
 
-See **[docs/deploy-dokploy.md](docs/deploy-dokploy.md)** — one Compose service built from this repository,
-environment from [`deploy/dokploy.env.example`](deploy/dokploy.env.example), domain on the `web` service (port 3000).
+Start with **[docs/deploy-vps.md](docs/deploy-vps.md)**: Ubuntu 24.04 bootstrap script
+([`deploy/vps/setup-ubuntu.sh`](deploy/vps/setup-ubuntu.sh)), Dokploy install, then one Compose service built from this
+repository ([docs/deploy-dokploy.md](docs/deploy-dokploy.md)) with PostgreSQL, Redis, API, worker, web and nightly
+database dumps. Backups and restores: [`deploy/postgres/restore.sh`](deploy/postgres/restore.sh) and
+[docs/runbooks/backup-restore.md](docs/runbooks/backup-restore.md).
 
 ## Tests
 
