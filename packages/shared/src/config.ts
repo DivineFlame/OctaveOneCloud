@@ -73,6 +73,11 @@ export const baseEnvSchema = z.object({
   SENTRY_DSN: optionalString,
   /** Lets the production build run over plain HTTP on localhost only (docker-compose.local.yml). */
   OOC_ALLOW_INSECURE_LOCAL: bool,
+  /**
+   * Lets a production build run over plain HTTP on an IP address and port (e.g. http://203.0.113.10:8080)
+   * before a domain exists. Refused together with live payments or live supplier actions.
+   */
+  OOC_ALLOW_INSECURE_HTTP: bool,
 });
 
 export type AppConfig = z.infer<typeof baseEnvSchema>;
@@ -114,8 +119,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (c.NODE_ENV === 'production') {
     const localOnly = c.OOC_ALLOW_INSECURE_LOCAL && ['localhost', '127.0.0.1'].includes(new URL(c.APP_URL).hostname);
     if (c.OOC_ALLOW_INSECURE_LOCAL && !localOnly) problems.push('OOC_ALLOW_INSECURE_LOCAL is only permitted with a localhost APP_URL');
-    if (!localOnly && !c.APP_URL.startsWith('https://')) problems.push('APP_URL must use https in production');
-    if (!localOnly && !c.COOKIE_SECURE) problems.push('COOKIE_SECURE must be true in production');
+    const insecureHttp = localOnly || c.OOC_ALLOW_INSECURE_HTTP;
+    if (!insecureHttp && !c.APP_URL.startsWith('https://')) problems.push('APP_URL must use https in production (or set OOC_ALLOW_INSECURE_HTTP=true for an IP:port trial)');
+    if (!insecureHttp && !c.COOKIE_SECURE) problems.push('COOKIE_SECURE must be true in production');
+    if (c.OOC_ALLOW_INSECURE_HTTP) {
+      if (c.APP_URL.startsWith('http://') && c.COOKIE_SECURE) problems.push('COOKIE_SECURE must be false when APP_URL uses http:// (browsers drop secure cookies over HTTP)');
+      if (c.CASHFREE_ENV === 'production') problems.push('OOC_ALLOW_INSECURE_HTTP cannot be used with CASHFREE_ENV=production');
+      if (c.RESELLERCLUB_ENV === 'live') problems.push('OOC_ALLOW_INSECURE_HTTP cannot be used with RESELLERCLUB_ENV=live');
+    }
     if (!c.SMTP_URL) problems.push('SMTP_URL is required in production (verification, password reset and invitation emails)');
   }
   const tier = appEnv(c);
@@ -124,6 +135,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (tier !== 'production' && c.RESELLERCLUB_ENV === 'live') problems.push('RESELLERCLUB_ENV=live is only allowed when APP_ENV=production');
   if (problems.length) throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   return c;
+}
+
+/** True when the app is deliberately served without HTTPS (IP:port trial or local run). */
+export function isInsecureHttp(c: Pick<AppConfig, 'APP_URL'>): boolean {
+  return c.APP_URL.startsWith('http://');
 }
 
 /** Effective deployment tier: APP_ENV if set, otherwise production for NODE_ENV=production, else development. */

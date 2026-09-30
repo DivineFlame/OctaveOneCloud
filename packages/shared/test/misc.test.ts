@@ -74,6 +74,13 @@ describe('config', () => {
     expect(() => loadConfig({ ...prod, CASHFREE_ENV: 'production', APP_ENV: 'staging' })).toThrow(/only allowed when APP_ENV=production/);
     expect(() => loadConfig({ ...base, CASHFREE_ENV: 'production', CASHFREE_CLIENT_ID: 'i', CASHFREE_CLIENT_SECRET: 's', CASHFREE_WEBHOOK_SECRET: 'w' })).toThrow(/APP_ENV=production/);
   });
+  it('allows an explicit IP:port HTTP trial but never with live money or supplier actions', () => {
+    const ipProd = { ...base, NODE_ENV: 'production', APP_URL: 'http://203.0.113.10:8080', API_URL: 'http://203.0.113.10:8080/api', SMTP_URL: 'smtp://m.test:25', MAIL_FROM: 'a@x.test' };
+    expect(() => loadConfig(ipProd)).toThrow(/OOC_ALLOW_INSECURE_HTTP/);
+    expect(loadConfig({ ...ipProd, OOC_ALLOW_INSECURE_HTTP: 'true' }).APP_URL).toBe('http://203.0.113.10:8080');
+    expect(() => loadConfig({ ...ipProd, OOC_ALLOW_INSECURE_HTTP: 'true', COOKIE_SECURE: 'true' })).toThrow(/COOKIE_SECURE must be false/);
+    expect(() => loadConfig({ ...ipProd, OOC_ALLOW_INSECURE_HTTP: 'true', CASHFREE_ENV: 'production', CASHFREE_CLIENT_ID: 'i', CASHFREE_CLIENT_SECRET: 's', CASHFREE_WEBHOOK_SECRET: 'w' })).toThrow(/cannot be used with CASHFREE_ENV=production/);
+  });
   it('only allows insecure production config on localhost', () => {
     const prod = { ...base, NODE_ENV: 'production', SMTP_URL: 'smtp://mail.test:25', MAIL_FROM: 'a@b.test' };
     expect(loadConfig({ ...prod, OOC_ALLOW_INSECURE_LOCAL: 'true' }).APP_URL).toBe('http://localhost:3000');

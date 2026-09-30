@@ -3,7 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
-import { AppConfig, loadConfig } from '@ooc/shared';
+import { AppConfig, isInsecureHttp, loadConfig } from '@ooc/shared';
 import { AppModule } from './app.module';
 import { JsonLogger } from './common/logger';
 
@@ -26,5 +26,8 @@ export async function createApp(opts: { logger?: boolean } = {}): Promise<INestA
     rawBody: true,
     logger: opts.logger === false ? false : new JsonLogger(config.LOG_LEVEL, 'api'),
   });
+  if (config.NODE_ENV === 'production' && isInsecureHttp(config)) {
+    new JsonLogger(config.LOG_LEVEL, 'api').warn('Serving over plain HTTP (OOC_ALLOW_INSECURE_HTTP). Passwords and sessions are not encrypted in transit — use only for a trial, never for real customers.', 'Bootstrap');
+  }
   return configureApp(app, config);
 }

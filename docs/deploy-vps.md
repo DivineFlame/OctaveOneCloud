@@ -87,6 +87,34 @@ PostgreSQL needs nothing extra: the `postgres` service creates the `ooc` databas
 After the first deploy you should see these services in Dokploy: `postgres`, `redis`, `migrate` (exited 0),
 `api` (healthy), `worker`, `web` (healthy), `db-backup` (healthy after its first dump).
 
+## Run on IP:port (no domain yet)
+
+For a first trial you can open the app at `http://<server-ip>:8080` without a domain. Traffic is **not encrypted**
+(passwords and sessions travel in clear text), so use it only for testing — the app logs a warning and refuses to
+combine this mode with live Cashfree or live ResellerClub.
+
+1. Open the port on the VPS firewall: `ufw allow 8080/tcp`
+   (Docker-published ports bypass ufw anyway, but keep the rule set explicit.)
+2. In Dokploy → service → **Environment** use (with your IP):
+
+   ```
+   APP_ENV=production
+   APP_URL=http://203.0.113.10:8080
+   API_URL=http://203.0.113.10:8080/api
+   COOKIE_SECURE=false
+   OOC_ALLOW_INSECURE_HTTP=true
+   WEB_PUBLISH=8080
+   ```
+
+   plus the usual `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `CREDENTIAL_ENCRYPTION_KEY`, `SMTP_URL`, `MAIL_FROM`.
+   Do not add a Dokploy domain in this mode. Port 3000 stays the Dokploy panel, which is why the app uses 8080.
+3. Deploy and open `http://203.0.113.10:8080`.
+
+Moving to HTTPS later: add the domain in Dokploy (service `web`, port 3000, HTTPS on), set
+`APP_URL`/`API_URL` to `https://…`, `COOKIE_SECURE=true`, remove `OOC_ALLOW_INSECURE_HTTP` and `WEB_PUBLISH`,
+run `ufw delete allow 8080/tcp`, and redeploy. Accounts and data are kept.
+No domain but want HTTPS? Use `203-0-113-10.sslip.io` as the domain (your IP with dashes) — it works with Let's Encrypt.
+
 ## 6. Off-site backups (do this before real customers)
 
 1. Dokploy → **Settings → S3 Destinations → Add**: your bucket, region, access key (use a key that can write but

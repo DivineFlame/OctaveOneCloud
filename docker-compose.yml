@@ -198,6 +198,10 @@ services:
       API_INTERNAL_URL: http://api:4000
       NODE_ENV: production
     expose: ["3000"]
+    # Default: bound to the server's loopback only (not reachable from outside); Dokploy routes the domain.
+    # IP:port trial without a domain: set WEB_PUBLISH=8080 (docs/deploy-vps.md, "Run on IP:port").
+    ports:
+      - "${WEB_PUBLISH:-127.0.0.1:3100}:3000"
     depends_on:
       api: { condition: service_healthy }
 
