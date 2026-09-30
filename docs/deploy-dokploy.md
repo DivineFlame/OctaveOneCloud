@@ -146,7 +146,7 @@ Dokploy registry credential for `ghcr.io` and replace each `build:` block in a c
 |---|---|
 | `api` restarting, log says `Invalid configuration: …` | Missing/invalid variable named in the message |
 | `required variable POSTGRES_PASSWORD is missing a value` | Environment tab is empty or not saved — paste `deploy/dokploy.env.example` values and Save |
-| No domain yet | Use `http://<ip>:8080` (docs/deploy-vps.md, "Run on IP:port") or `<ip-with-dashes>.sslip.io` with HTTPS |
+| No domain yet | Use `http://<ip>:8585` (docs/deploy-vps.md, "Run on IP:port") or `<ip-with-dashes>.sslip.io` with HTTPS |
 | `migrate` exits non-zero | Read its log; `…previously failed` means a failed migration must be resolved before redeploying |
 | 404/502 on the domain | Domain must target service `web`, port `3000`; Isolated Deployments on (or add `dokploy-network` to `web`) |
 | Emails not arriving | Check `SMTP_URL` credentials/port and SPF/DKIM for the `MAIL_FROM` domain; API logs `Mail delivery failed` |

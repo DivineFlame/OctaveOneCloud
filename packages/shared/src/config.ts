@@ -74,7 +74,7 @@ export const baseEnvSchema = z.object({
   /** Lets the production build run over plain HTTP on localhost only (docker-compose.local.yml). */
   OOC_ALLOW_INSECURE_LOCAL: bool,
   /**
-   * Lets a production build run over plain HTTP on an IP address and port (e.g. http://203.0.113.10:8080)
+   * Lets a production build run over plain HTTP on an IP address and port (e.g. http://203.0.113.10:8585)
    * before a domain exists. Refused together with live payments or live supplier actions.
    */
   OOC_ALLOW_INSECURE_HTTP: bool,
