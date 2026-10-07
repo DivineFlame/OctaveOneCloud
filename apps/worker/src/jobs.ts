@@ -1,5 +1,5 @@
 import { PrismaClient } from '@ooc/db';
-import { AdapterRegistry, CashfreeClient, advanceOverdueRenewals, claimRenewalReminders, expireStaleReservations, prepareRenewals, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
+import { AdapterRegistry, CashfreeClient, advanceOverdueRenewals, creditConfirmedRefunds, reconcileRefunds, claimRenewalReminders, expireStaleReservations, prepareRenewals, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
 import { RenewalSettings, SellerProfile } from '@ooc/shared';
 import { Mailer } from './mail';
 import { log } from './log';
@@ -90,6 +90,12 @@ export async function sweep(deps: Deps, enqueue: { inbox: (id: string) => Promis
   if (deps.seller) {
     for (const o of await ordersAwaitingInvoice(deps.db, 50)) if ((await issueInvoice(deps, o.id))?.result === 'issued') invoices++;
   }
+  // Refunds: status API for requested/pending ones (missing webhooks, timeouts), then credit notes for confirmed ones.
+  const refunds = await reconcileRefunds(deps.db, deps.cashfree);
+  for (const r of refunds) if (r.result === 'error') log('warn', 'refund reconcile failed', r);
+  const credits = deps.seller ? await creditConfirmedRefunds(deps.db, deps.seller) : [];
+  for (const c of credits) log(c.error ? 'error' : 'info', c.error ? 'refund credit note failed' : 'refund credit note issued', c);
+
   // Customer-paid renewals: create renewal orders, move unpaid ones through past due → suspension → lapse,
   // and send reminders (each stage at most once).
   const renewals = await prepareRenewals(deps.db, deps.renewal, deps.sellerStateCode);
@@ -106,7 +112,7 @@ export async function sweep(deps: Deps, enqueue: { inbox: (id: string) => Promis
     if (l.result === 'done') log('info', 'subscription lifecycle', { ...l });
     else if (l.result === 'retry_later') log('warn', 'subscription lifecycle deferred', { ...l });
   }
-  const renewalActivity = renewals.created.length + overdue.pastDue + overdue.suspensionsRequested + overdue.lapsed + reminders;
+  const renewalActivity = refunds.length + credits.length + renewals.created.length + overdue.pastDue + overdue.suspensionsRequested + overdue.lapsed + reminders;
   if (inbox.length || jobs.length || pending.length || expired || invoices || lifecycle.length || renewalActivity) {
     log('info', 'sweep', {
       inbox: inbox.length, jobs: jobs.length, reconcile: pending.length, expiredReservations: expired, invoices, lifecycle: lifecycle.length,

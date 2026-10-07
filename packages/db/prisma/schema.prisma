@@ -485,7 +485,7 @@ model CreditNote {
   amountMinor BigInt
   taxMinor    BigInt
   reason      String
-  refundId    String?  @db.Uuid
+  refundId    String?  @unique @db.Uuid
   taxDetail   Json?
   createdById String?  @db.Uuid
   issuedAt    DateTime?
@@ -570,9 +570,14 @@ model Refund {
   reason           String
   requestedById    String?      @db.Uuid
   providerPayload  Json?
+  // Issue a credit note against this invoice once the refund is confirmed.
+  creditNoteInvoiceId String?   @db.Uuid
+  lastError        String?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   paymentOrder     PaymentOrder @relation(fields: [paymentOrderId], references: [id])
+
+  @@index([status, updatedAt])
 }
 
 model Dispute {

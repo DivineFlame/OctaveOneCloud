@@ -31,7 +31,23 @@ invoice or credit note, and reject deleting them. Corrections are made only with
 `POST /v1/admin/invoices/:id/credit-notes` `{ taxableMinor, reason, refundId? }` — finance (or admin) operators,
 MFA required, audited. GST is credited in the same proportion as the invoice's tax breakdown. The sum of credit
 notes can never exceed the invoice's taxable value (enforced under a row lock). A credit note does not move
-money; refunds are separate (refund initiation is a later milestone).
+money; to return money use a refund (below).
+
+## Refunds
+
+Finance operators refund from **Admin → Invoices → invoice → Refund payment** (`POST /v1/admin/orders/:orderId/refunds`
+`{ amountMinor, reason, creditNote }`, amount incl. GST). Rules:
+
+- Refundable = successful payments − refunds that are not failed/cancelled, checked under a row lock (no over-refund
+  under concurrency). Cashfree only refunds within six months of the payment.
+- The refund row is stored before Cashfree is called, with our `refund_id` and an idempotency key. A refund is final
+  only on provider evidence (API response, `REFUND_*` webhook, or the status API checked by the worker every few
+  minutes). After a timeout the worker looks the refund up and re-sends the *identical* request only if Cashfree has
+  no record of it. A rejection by Cashfree marks it `failed` and frees the amount.
+- With "credit note" ticked, the worker issues the GST credit note **after** the refund succeeds, for the taxable
+  share of the refunded amount (one per refund).
+- Refunds do not cancel subscriptions or access; do that separately when the service should end.
+- **Admin → Refunds** lists all refunds and their status.
 
 ## Configuration
 

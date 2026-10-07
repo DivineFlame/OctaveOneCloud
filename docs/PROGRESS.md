@@ -48,7 +48,8 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Webhook intake: raw-body signature, durable inbox, dedupe, async processing | ✅ | |
 | Payment processing: idempotent, out-of-order safe, amount/currency validation, duplicate-payment flagging | ✅ | Integration tests on Postgres |
 | Reconciliation via status API + periodic sweeper | 🟡 | Logic tested with mocks |
-| Refund / dispute event handling | 🟡 | Refund *initiation* API not built |
+| Refund / dispute event handling | 🟡 | Webhooks + status API; mocked in tests |
+| Refund initiation (finance operators, capped, idempotent, timeout-safe, credit note on confirmation) | 🟡 | `docs/invoicing.md#refunds`; Cashfree mocked — needs sandbox run |
 | One eligible ResellerClub product end-to-end | ⛔ | Blocked on capability verification |
 | Supplier journal + unknown-outcome recovery | ✅ | Operator resolve endpoint |
 

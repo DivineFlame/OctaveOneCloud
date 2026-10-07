@@ -226,11 +226,12 @@ async function processPgEvent(db: PrismaClient, body: PgWebhook): Promise<InboxO
   return { status: 'ignored', detail: `unhandled event type ${type || '(none)'}` };
 }
 
-const REFUND_MAP: Record<string, RefundStatus> = { SUCCESS: 'success', PENDING: 'pending', ONHOLD: 'pending', CANCELLED: 'cancelled', FAILED: 'failed' };
+// Create/Get Refund document SUCCESS, PENDING, PENDING_APPROVAL, CANCELLED, ONHOLD, REJECTED (FAILED kept for webhooks).
+const REFUND_MAP: Record<string, RefundStatus> = { SUCCESS: 'success', PENDING: 'pending', PENDING_APPROVAL: 'pending', ONHOLD: 'pending', CANCELLED: 'cancelled', REJECTED: 'failed', FAILED: 'failed' };
 const REFUND_ALLOWED: Record<RefundStatus, RefundStatus[]> = { requested: ['pending', 'success', 'failed', 'cancelled'], pending: ['success', 'failed', 'cancelled'], success: [], failed: [], cancelled: [] };
 
 /** A refund request is not a confirmed refund: only provider evidence moves it to success. */
-export async function applyRefundStatus(db: PrismaClient, refundRequestId: string, providerStatus: string, providerRefundId: string | undefined, raw: unknown): Promise<string> {
+export async function applyRefundStatus(db: PrismaClient | Prisma.TransactionClient, refundRequestId: string, providerStatus: string, providerRefundId: string | undefined, raw: unknown): Promise<string> {
   const next = REFUND_MAP[providerStatus.toUpperCase()];
   if (!next) return `unmapped refund status ${providerStatus}`;
   const refund = await db.refund.findUnique({ where: { refundRequestId } });

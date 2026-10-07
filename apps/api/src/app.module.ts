@@ -17,6 +17,7 @@ import { HealthModule } from './health/health.module';
 import { SupportModule } from './support/support.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { RefundsModule } from './refunds/refunds.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
     SupportModule,
     InvoicesModule,
     SubscriptionsModule,
+    RefundsModule,
   ],
   providers: [
     // Throttler runs before the session guard (guards execute in registration order).

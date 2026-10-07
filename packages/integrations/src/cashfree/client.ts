@@ -34,6 +34,14 @@ export interface CashfreePayment {
   raw: unknown;
 }
 
+export interface CashfreeRefund {
+  refundId: string;
+  cfRefundId?: string;
+  amountMinor: number;
+  status: string;
+  raw: unknown;
+}
+
 /**
  * Cashfree Payment Gateway client (server-side only).
  * Headers per official docs: x-client-id, x-client-secret, x-api-version.
@@ -51,7 +59,7 @@ export class CashfreeClient {
     return Boolean(this.baseUrl && this.credentials.clientId && this.credentials.clientSecret);
   }
 
-  private async call(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+  private async call(method: 'GET' | 'POST', path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<unknown> {
     if (!this.enabled) throw new PaymentProviderError('disabled', 'Cashfree is not configured');
     let res: Response;
     try {
@@ -64,6 +72,7 @@ export class CashfreeClient {
           'x-client-id': this.credentials.clientId!,
           'x-client-secret': this.credentials.clientSecret!,
           'x-api-version': this.credentials.apiVersion,
+          ...extraHeaders,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
@@ -109,6 +118,40 @@ export class CashfreeClient {
       method: p.payment_group ? String(p.payment_group) : undefined,
       raw: p,
     }));
+  }
+
+  /**
+   * Create Refund — POST /orders/{order_id}/refunds (docs: api-reference/payments/latest/refunds/create-refund).
+   * refund_id is ours (alphanumeric, 3–40 chars); x-idempotency-key makes a retry of the same request safe.
+   */
+  async createRefund(input: { orderId: string; refundId: string; amountMinor: number; note: string; idempotencyKey: string }): Promise<CashfreeRefund> {
+    if (!/^[A-Za-z0-9]{3,40}$/.test(input.refundId)) throw new PaymentProviderError('invalid_response', 'refund_id must be 3-40 alphanumeric characters');
+    const note = input.note.replace(/[^\w .,:/-]/g, ' ').trim().slice(0, 100).padEnd(3, '.');
+    const json = (await this.call(
+      'POST',
+      `/orders/${encodeURIComponent(input.orderId)}/refunds`,
+      { refund_amount: Number(minorToDecimalString(input.amountMinor, 'INR')), refund_id: input.refundId, refund_note: note },
+      { 'x-idempotency-key': input.idempotencyKey },
+    )) as Record<string, unknown>;
+    const r = this.parseRefund(json);
+    if (r.refundId !== input.refundId || r.amountMinor !== input.amountMinor) throw new PaymentProviderError('invalid_response', 'Cashfree refund does not match the requested refund id/amount');
+    return r;
+  }
+
+  /** Get Refund — GET /orders/{order_id}/refunds/{refund_id}. */
+  async getRefund(orderId: string, refundId: string): Promise<CashfreeRefund> {
+    return this.parseRefund((await this.call('GET', `/orders/${encodeURIComponent(orderId)}/refunds/${encodeURIComponent(refundId)}`)) as Record<string, unknown>);
+  }
+
+  private parseRefund(json: Record<string, unknown>): CashfreeRefund {
+    if (!json.refund_id || !json.refund_status) throw new PaymentProviderError('invalid_response', 'Refund response missing refund_id/refund_status');
+    return {
+      refundId: String(json.refund_id),
+      cfRefundId: json.cf_refund_id ? String(json.cf_refund_id) : undefined,
+      amountMinor: decimalToMinor(json.refund_amount as number | string),
+      status: String(json.refund_status),
+      raw: json,
+    };
   }
 
   private parseOrder(json: Record<string, unknown>, expected?: CreateOrderInput): CashfreeOrder {

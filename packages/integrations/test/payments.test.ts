@@ -81,10 +81,10 @@ describe('payment evidence processing', () => {
   it('only confirms refunds from provider evidence and ignores backwards transitions', async () => {
     const { po } = await setup();
     const { applyRefundStatus } = await import('../src/payments/processor');
-    await db.refund.create({ data: { paymentOrderId: po.id, refundRequestId: 'rf-1', amountMinor: 1000n, reason: 'test' } });
-    expect(await applyRefundStatus(db, 'rf-1', 'PENDING', 'cf-r1', {})).toBe('refund_pending');
-    expect(await applyRefundStatus(db, 'rf-1', 'SUCCESS', 'cf-r1', {})).toBe('refund_success');
-    expect(await applyRefundStatus(db, 'rf-1', 'PENDING', 'cf-r1', {})).toMatch(/ignored/);
-    expect((await db.refund.findUniqueOrThrow({ where: { refundRequestId: 'rf-1' } })).status).toBe('success');
+    await db.refund.create({ data: { paymentOrderId: po.id, refundRequestId: 'rf1', amountMinor: 1000n, reason: 'test' } });
+    expect(await applyRefundStatus(db, 'rf1', 'PENDING', 'cf-r1', {})).toBe('refund_pending');
+    expect(await applyRefundStatus(db, 'rf1', 'SUCCESS', 'cf-r1', {})).toBe('refund_success');
+    expect(await applyRefundStatus(db, 'rf1', 'PENDING', 'cf-r1', {})).toMatch(/ignored/);
+    expect((await db.refund.findUniqueOrThrow({ where: { refundRequestId: 'rf1' } })).status).toBe('success');
   });
 });
