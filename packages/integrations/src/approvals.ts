@@ -14,11 +14,23 @@ export class ApprovalError extends Error {
   }
 }
 
-export async function requestApproval(db: PrismaClient, input: { orgId: string; agentRunId?: string; actionType: ApprovalActionType; payload: Record<string, unknown>; ttlMs?: number }) {
+export const APPROVAL_ACTION_TYPES: readonly ApprovalActionType[] = ['outbound_message', 'publish_campaign', 'delete', 'spend'];
+
+/** Which org permission may approve each action type (spend is a billing decision). */
+export const APPROVER_PERMISSION: Record<ApprovalActionType, 'services.manage' | 'billing.manage'> = {
+  outbound_message: 'services.manage',
+  publish_campaign: 'services.manage',
+  delete: 'services.manage',
+  spend: 'billing.manage',
+};
+
+export async function requestApproval(db: PrismaClient, input: { orgId: string; agentRunId?: string; requestedBy?: string; summary?: string; actionType: ApprovalActionType; payload: Record<string, unknown>; ttlMs?: number }) {
   return db.approvalRequest.create({
     data: {
       orgId: input.orgId,
       agentRunId: input.agentRunId,
+      requestedBy: input.requestedBy,
+      summary: input.summary,
       actionType: input.actionType,
       actionHash: canonicalHash({ actionType: input.actionType, payload: input.payload }),
       payload: input.payload as Prisma.InputJsonValue,
@@ -27,9 +39,13 @@ export async function requestApproval(db: PrismaClient, input: { orgId: string; 
   });
 }
 
-export async function decideApproval(db: PrismaClient, input: { orgId: string; approvalId: string; userId: string; approve: boolean }) {
+/**
+ * Records a human decision. `actionHash` must be the hash the approver was shown, so a decision always refers to
+ * the exact action displayed (requests are immutable in the database as well).
+ */
+export async function decideApproval(db: PrismaClient, input: { orgId: string; approvalId: string; userId: string; approve: boolean; actionHash?: string }) {
   const updated = await db.approvalRequest.updateMany({
-    where: { id: input.approvalId, orgId: input.orgId, status: 'pending', expiresAt: { gt: new Date() } },
+    where: { id: input.approvalId, orgId: input.orgId, status: 'pending', expiresAt: { gt: new Date() }, ...(input.actionHash ? { actionHash: input.actionHash } : {}) },
     data: { status: input.approve ? 'approved' : 'rejected', decidedById: input.userId, decidedAt: new Date() },
   });
   if (updated.count !== 1) throw new ApprovalError('not_found', 'Approval not pending, expired, or not in this organisation');
@@ -49,4 +65,10 @@ export async function consumeApproval(db: PrismaClient, input: { orgId: string; 
   const claimed = await db.approvalRequest.updateMany({ where: { id: a.id, status: 'approved', actionHash: hash, expiresAt: { gt: new Date() } }, data: { status: 'executed', executedAt: new Date() } });
   if (claimed.count !== 1) throw new ApprovalError(a.status === 'approved' ? 'already_used' : 'not_approved');
   return a;
+}
+
+/** Marks pending approvals past their expiry as expired. */
+export async function expireApprovals(db: PrismaClient, now = new Date()) {
+  const r = await db.approvalRequest.updateMany({ where: { status: { in: ['pending', 'approved'] }, expiresAt: { lte: now } }, data: { status: 'expired' } });
+  return r.count;
 }

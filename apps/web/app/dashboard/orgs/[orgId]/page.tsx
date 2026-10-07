@@ -66,7 +66,7 @@ export default function OrgPage({ params }: { params: Promise<{ orgId: string }>
     <>
       <p><Link href="/dashboard">← Dashboard</Link></p>
       <h1>{org.name}</h1>
-      <div className="row"><span className="badge">Your role: {role ?? '…'}</span><Link className="btn" href="/pricing">Browse products</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/subscriptions`}>Subscriptions</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/usage`}>Usage</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/invoices`}>Invoices</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/support`}>Support</Link></div>
+      <div className="row"><span className="badge">Your role: {role ?? '…'}</span><Link className="btn" href="/pricing">Browse products</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/subscriptions`}>Subscriptions</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/usage`}>Usage</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/approvals`}>Approvals</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/invoices`}>Invoices</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/support`}>Support</Link></div>
       {msg && <p className={msg.error ? 'error' : 'muted'} role={msg.error ? 'alert' : 'status'}>{msg.text}</p>}
 
       <h2>Billing details</h2>

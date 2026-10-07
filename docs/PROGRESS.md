@@ -78,7 +78,7 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Automatic renewal collection via mandates | ⬜ (needs Cashfree Subscriptions) |
 | Scheduled downgrades, cancel at period end | ✅ |
 | Upgrades (prorated charge + payment, applied via adapter) | ✅ |
-| Agent approval policies | ✅ library (`approvals.ts`); ⬜ API/UI |
+| Agent approval policies | ✅ library, signed app API, role policy, customer Approvals page, email to approvers, expiry |
 | Agent runtime gateway, tool/connector scopes, budgets | ⬜ |
 | Connector grants (encrypted OAuth tokens) | 🟡 cipher + schema; ⬜ OAuth flows |
 

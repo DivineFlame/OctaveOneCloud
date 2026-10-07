@@ -75,3 +75,18 @@ The secret must be at least 32 characters. An app can only act for organisations
 Quotas are per calendar month (IST) for metered features (`Feature.metered`), limited by the merged entitlement:
 plan grants plus usage packs (additive, expiring). Unsettled reservations expire after their TTL. Overage is never
 billed automatically; customers see usage under **Organisation → Usage**.
+
+### Human approvals for agent actions
+
+Outbound messages, campaign publishing, deletions and spending must be approved by a person first. The approval
+binds to the SHA-256 of the canonical `{ actionType, payload }`; any change to the payload invalidates it.
+
+| Endpoint | Body | Result |
+|---|---|---|
+| `approvals/request` | `{ orgId, actionType: outbound_message\|publish_campaign\|delete\|spend, payload, summary, agentRunId?, ttlSeconds? }` | `201 { approvalId, actionHash, expiresAt }`; approvers are emailed |
+| `approvals/status` | `{ orgId, approvalId }` | `pending \| approved \| rejected \| expired \| invalidated \| executed` |
+| `approvals/consume` | `{ orgId, approvalId, actionType, payload }` | `200` exactly once for the identical action; `409 not_approved \| inputs_changed \| already_used \| expired` otherwise |
+
+Execute the action **only after** `consume` returns 200. Owners and admins decide messages, publishing and
+deletions; owners and billing members decide spending. Requests are immutable in the database; customers review
+them under **Organisation → Approvals** and their decision must quote the action hash they were shown.

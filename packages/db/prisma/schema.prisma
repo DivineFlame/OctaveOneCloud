@@ -1024,6 +1024,9 @@ model ApprovalRequest {
   id          String         @id @default(uuid()) @db.Uuid
   orgId       String         @db.Uuid
   agentRunId  String?
+  // Adapter key of the app/agent runtime that asked, and a one-line description shown to approvers.
+  requestedBy String?
+  summary     String?
   actionType  String // outbound_message | publish_campaign | delete | spend
   // SHA-256 of canonical action inputs; approval is valid only for this exact hash.
   actionHash  String

@@ -2,13 +2,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { signAdapterPayload } from '@ooc/shared';
-import { createOrg, createTestApp, db, resetDb, signUp } from './harness';
+import { ORIGIN, createOrg, createTestApp, db, resetDb, signUp } from './harness';
+import { MailService } from '../src/auth/mail.service';
 
 const SECRET = 'crm-adapter-secret-for-tests-0123456789abcdef';
 let app: NestExpressApplication;
+let mail: MailService;
 beforeAll(async () => {
   process.env.APP_ADAPTER_CRM_SECRET = SECRET;
-  ({ app } = (await createTestApp()) as { app: NestExpressApplication });
+  ({ app, mail } = (await createTestApp()) as { app: NestExpressApplication; mail: MailService });
 });
 afterAll(async () => {
   await app.close();
@@ -59,5 +61,47 @@ describe('app service API', () => {
     expect(usage.body.features[0]).toMatchObject({ featureKey: 'ai.credits', limit: 100, used: 42, reserved: 0 });
     const other = await signUp(app, 'other@example.com');
     await other.agent.get(`/v1/orgs/${orgId}/usage`).expect(404);
+  });
+
+  it('runs the approval flow: request → human decision bound to the exact action → single consume', async () => {
+    const owner = await signUp(app, 'boss@example.com');
+    const orgId = await createOrg(owner.agent);
+    await provisioned(orgId);
+    const payload = { to: 'customer@example.com', subject: 'Offer', body: 'Hello' };
+    const req = await signed('approvals/request', { orgId, actionType: 'outbound_message', payload, summary: 'Send offer email to customer@example.com' }).expect(201);
+    expect(mail.devOutbox.some((m) => m.to === 'boss@example.com' && m.subject.startsWith('Approval needed'))).toBe(true);
+    expect((await signed('approvals/consume', { orgId, approvalId: req.body.approvalId, actionType: 'outbound_message', payload }).expect(409)).body.error).toBe('not_approved');
+
+    const list = await owner.agent.get(`/v1/orgs/${orgId}/approvals?status=pending`).expect(200);
+    expect(list.body[0]).toMatchObject({ summary: 'Send offer email to customer@example.com', canDecide: true, requestedBy: 'app.crm' });
+    await owner.agent.post(`/v1/orgs/${orgId}/approvals/${req.body.approvalId}/decide`).set('Origin', ORIGIN).send({ approve: true, actionHash: '0'.repeat(64) }).expect(400);
+    await owner.agent.post(`/v1/orgs/${orgId}/approvals/${req.body.approvalId}/decide`).set('Origin', ORIGIN).send({ approve: true, actionHash: list.body[0].actionHash }).expect(200);
+    expect((await signed('approvals/status', { orgId, approvalId: req.body.approvalId }).expect(200)).body.status).toBe('approved');
+
+    // A changed action invalidates the approval; the original can then no longer be executed either.
+    const changed = await signed('approvals/consume', { orgId, approvalId: req.body.approvalId, actionType: 'outbound_message', payload: { ...payload, body: 'Different' } }).expect(409);
+    expect(changed.body.error).toBe('inputs_changed');
+    expect((await signed('approvals/consume', { orgId, approvalId: req.body.approvalId, actionType: 'outbound_message', payload }).expect(409)).body.error).toBe('not_approved');
+
+    // Fresh request: approve, consume once.
+    const r2 = await signed('approvals/request', { orgId, actionType: 'spend', payload: { amountMinor: 50000, vendor: 'ads' }, summary: 'Spend ₹500 on ads' }).expect(201);
+    const hash = (await owner.agent.get(`/v1/orgs/${orgId}/approvals?status=pending`).expect(200)).body[0].actionHash;
+    await owner.agent.post(`/v1/orgs/${orgId}/approvals/${r2.body.approvalId}/decide`).set('Origin', ORIGIN).send({ approve: true, actionHash: hash }).expect(200);
+    await signed('approvals/consume', { orgId, approvalId: r2.body.approvalId, actionType: 'spend', payload: { amountMinor: 50000, vendor: 'ads' } }).expect(200);
+    expect((await signed('approvals/consume', { orgId, approvalId: r2.body.approvalId, actionType: 'spend', payload: { amountMinor: 50000, vendor: 'ads' } }).expect(409)).body.error).toBe('already_used');
+    await expect(db.approvalRequest.update({ where: { id: r2.body.approvalId }, data: { payload: { amountMinor: 1 } } })).rejects.toThrow(/immutable/);
+  });
+
+  it('lets only the right roles decide', async () => {
+    const owner = await signUp(app, 'own@example.com');
+    const orgId = await createOrg(owner.agent);
+    await provisioned(orgId);
+    const member = await signUp(app, 'member@example.com');
+    const { userId } = member;
+    await db.membership.create({ data: { orgId, userId, role: 'member' } });
+    const r = await signed('approvals/request', { orgId, actionType: 'delete', payload: { contactId: 'c1' }, summary: 'Delete contact c1' }).expect(201);
+    const view = await member.agent.get(`/v1/orgs/${orgId}/approvals`).expect(200);
+    expect(view.body[0].canDecide).toBe(false);
+    await member.agent.post(`/v1/orgs/${orgId}/approvals/${r.body.approvalId}/decide`).set('Origin', ORIGIN).send({ approve: true, actionHash: view.body[0].actionHash }).expect(403);
   });
 });
