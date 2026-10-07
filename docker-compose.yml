@@ -40,6 +40,36 @@ services:
       POSTGRES_DB: ooc
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --data-checksums"
+    # The official image only applies POSTGRES_PASSWORD when the data volume is first created. This wrapper also
+    # re-applies it on every start (over the trusted local socket), so changing the value in Dokploy and redeploying
+    # updates the database password instead of locking the app out. Signals are forwarded for clean shutdowns.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        rm -f /var/run/postgresql/.ooc-password-synced
+        docker-entrypoint.sh "$$@" &
+        pid=$$!
+        # Forward as SIGINT = PostgreSQL "fast" shutdown, the same stop signal the official image uses.
+        trap 'kill -INT "$$pid" 2>/dev/null' TERM INT
+        (
+          i=0
+          until pg_isready -q -h /var/run/postgresql -U "$$POSTGRES_USER" -d postgres; do
+            i=$$((i + 1)); [ "$$i" -gt 300 ] && exit 0; sleep 1
+          done
+          sleep 2
+          until pg_isready -q -h /var/run/postgresql -U "$$POSTGRES_USER" -d postgres; do sleep 1; done
+          printf '%s\n' "ALTER USER \"$$POSTGRES_USER\" PASSWORD :'pw';" |
+            psql -q -h /var/run/postgresql -U "$$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -v pw="$$POSTGRES_PASSWORD" >/dev/null &&
+            touch /var/run/postgresql/.ooc-password-synced &&
+            echo "[postgres] password for $$POSTGRES_USER synced from POSTGRES_PASSWORD" ||
+            echo "[postgres] WARNING: could not sync password" >&2
+        ) &
+        status=0
+        wait "$$pid" || status=$$?
+        if [ "$$status" -gt 128 ]; then wait "$$pid" || status=$$?; fi
+        exit "$$status"
+      - postgres-wrapper
     # Sized for a 4–8 GB VPS; override the PG_* variables in Dokploy for bigger servers.
     command:
       - postgres
@@ -65,7 +95,8 @@ services:
       - timezone=UTC
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ooc -d ooc"]
+      # Healthy only once the server accepts connections AND the password sync has run.
+      test: ["CMD-SHELL", "pg_isready -U ooc -d ooc && [ -f /var/run/postgresql/.ooc-password-synced ]"]
       interval: 10s
       timeout: 5s
       retries: 10

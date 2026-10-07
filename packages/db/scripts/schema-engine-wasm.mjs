@@ -55,8 +55,21 @@ function loadMigrations() {
  */
 async function deploy() {
   const { default: pg } = await import('pg');
-  const client = new pg.Client({ connectionString: url });
-  await client.connect();
+  // Retry briefly: right after a (re)start the server may still be starting or applying the password sync.
+  let client;
+  for (let attempt = 1; ; attempt++) {
+    client = new pg.Client({ connectionString: url });
+    try {
+      await client.connect();
+      break;
+    } catch (e) {
+      await client.end().catch(() => {});
+      const retryable = ['28P01', '57P03', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(e.code);
+      if (!retryable || attempt >= 15) throw e;
+      console.warn(`waiting for database (${e.code}), attempt ${attempt}/15`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
   try {
     await client.query('SELECT pg_advisory_lock(72707369)');
     await client.query(`CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
@@ -97,6 +110,23 @@ async function deploy() {
   }
 }
 
+/** Human-readable next step for the errors operators actually hit during deploys. */
+function hintFor(e) {
+  const code = e?.code ?? '';
+  const msg = String(e?.message ?? '');
+  if (code === '28P01' || /password authentication failed/i.test(msg)) {
+    return 'HINT: POSTGRES_PASSWORD does not match the password stored in the database volume. Redeploy (the postgres service re-applies POSTGRES_PASSWORD on start) or see docs/deploy-dokploy.md → Troubleshooting.';
+  }
+  if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'EAI_AGAIN' || /connect/i.test(msg)) {
+    return 'HINT: cannot reach PostgreSQL. Check that the postgres service is healthy and DATABASE_URL points to host "postgres".';
+  }
+  if (code === '3D000') return 'HINT: database does not exist. The postgres service creates "ooc" on first start of an empty volume.';
+  if (/previously failed/.test(msg)) {
+    return 'HINT: a migration failed earlier. Inspect it, fix the cause, then mark it resolved: DELETE FROM "_prisma_migrations" WHERE finished_at IS NULL; and redeploy.';
+  }
+  return 'HINT: see the error above; nothing was partially applied (each migration runs in a transaction).';
+}
+
 const [cmd, arg] = process.argv.slice(2);
 if (cmd === 'diff-empty') {
   // Loaded lazily: `deploy` must work in the slim runtime image without dev-only packages.
@@ -110,7 +140,13 @@ if (cmd === 'diff-empty') {
   fs.writeFileSync(arg, r.stdout);
   console.log(`wrote ${arg}`);
 } else if (cmd === 'deploy') {
-  await deploy();
+  try {
+    await deploy();
+  } catch (e) {
+    console.error(`\nMIGRATION FAILED: ${e.message}`);
+    console.error(hintFor(e));
+    process.exit(1);
+  }
 } else {
   console.error('usage: schema-engine-wasm.mjs diff-empty <out.sql> | deploy');
   process.exit(2);
