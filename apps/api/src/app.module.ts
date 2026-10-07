@@ -18,6 +18,8 @@ import { SupportModule } from './support/support.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { RefundsModule } from './refunds/refunds.module';
+import { AppApiModule } from './app-api/app-api.module';
+import { UsageModule } from './usage/usage.module';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { RefundsModule } from './refunds/refunds.module';
     InvoicesModule,
     SubscriptionsModule,
     RefundsModule,
+    AppApiModule,
+    UsageModule,
   ],
   providers: [
     // Throttler runs before the session guard (guards execute in registration order).

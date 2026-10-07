@@ -50,3 +50,28 @@ Every request includes `orgId`, `correlationId`, `idempotencyKey`.
 4. Set the `AppAdapter` row to `sandbox`, then `active` after acceptance; only then can products activate.
 
 The in-memory `ReferenceAppAdapter` exists for tests/local development and throws if constructed in production.
+
+## Calling OctaveOneCloud (app service API)
+
+Apps must enforce entitlements themselves and meter usage through OctaveOneCloud. Requests go to the public site
+(`https://app.example.com/api/v1/app-api/...`), are `POST` with a JSON body, and are signed with the same secret:
+
+| Header | Value |
+|---|---|
+| `x-ooc-app` | the adapter key, e.g. `app.crm` (from `APP_ADAPTER_CRM_SECRET`) |
+| `x-ooc-timestamp` | unix seconds; requests more than 5 minutes off are rejected |
+| `x-ooc-signature` | `hex(HMAC-SHA256(secret, "<timestamp>.<raw body>"))` |
+
+The secret must be at least 32 characters. An app can only act for organisations it has been provisioned for
+(an active provisioning step for one of its products), otherwise `403 org_not_served`.
+
+| Endpoint | Body | Result |
+|---|---|---|
+| `entitlements` | `{ orgId }` | `{ entitlements: [{ featureKey, limit, mergePolicy }], subscriptions: [{ id, status, currentPeriodEnd }] }` — revoked/expired grants are excluded, so an empty list means no access |
+| `usage/reserve` | `{ orgId, resource, quantity, idempotencyKey, ttlSeconds? }` | `{ reservationId, expiresAt, periodEnd }`, or `409 quota_exceeded` with `limit/used/reserved`. Reserve **before** doing the work. |
+| `usage/settle` | `{ reservationId, actualQuantity, sourceEventId }` | bills `min(actual, reserved)`; repeating the same `sourceEventId` is a no-op |
+| `usage/release` | `{ reservationId }` | returns unused capacity (failed run) |
+
+Quotas are per calendar month (IST) for metered features (`Feature.metered`), limited by the merged entitlement:
+plan grants plus usage packs (additive, expiring). Unsettled reservations expire after their TTL. Overage is never
+billed automatically; customers see usage under **Organisation → Usage**.

@@ -60,6 +60,33 @@ export async function runProvisioningJob(db: PrismaClient, adapters: AdapterRegi
     }
     await db.provisioningStep.update({ where: { id: step.id }, data: { status: 'running', startedAt: new Date(), error: null } });
 
+    if (price.kind === 'usage_pack') {
+      // Prepaid usage: an additive, expiring grant enforced by our quota API — no app call needed.
+      const packFeatures = await db.planFeature.findMany({ where: { planVersionId: stepPlan.planVersionId }, include: { feature: true } });
+      const invalid = packFeatures.filter((f) => !f.feature.metered || f.feature.mergePolicy !== 'additive' || f.limit === null);
+      if (packFeatures.length === 0 || invalid.length) {
+        const error = packFeatures.length === 0 ? 'usage_pack_without_features' : `usage_pack_feature_not_additive_metered: ${invalid.map((f) => f.featureKey).join(',')}`;
+        await finishStep(db, step.id, 'failed', undefined, error);
+        results.push({ name: step.name, status: 'failed', error });
+        continue;
+      }
+      const validFrom = new Date();
+      const validTo = addIsoDuration(validFrom, price.billingInterval);
+      await db.$transaction(async (tx) => {
+        for (const f of packFeatures) {
+          const sourceId = `${item.id}:${stepPlan.planVersionId}`;
+          await tx.entitlement.upsert({
+            where: { orgId_featureKey_sourceType_sourceId: { orgId: job.orgId, featureKey: f.featureKey, sourceType: 'usage_pack', sourceId } },
+            update: {},
+            create: { orgId: job.orgId, featureKey: f.featureKey, mergePolicy: 'additive', limit: f.limit! * BigInt(item.quantity), sourceType: 'usage_pack', sourceId, validFrom, validTo },
+          });
+        }
+        await tx.provisioningStep.update({ where: { id: step.id }, data: { status: 'active', finishedAt: new Date(), evidence: { grantedBy: 'octaveonecloud', validTo: validTo.toISOString() } } });
+      });
+      results.push({ name: step.name, status: 'active' });
+      continue;
+    }
+
     if (stepPlan.fulfillment !== 'app_adapter' || !stepPlan.adapterKey) {
       const error = stepPlan.fulfillment === 'manual_service' ? 'manual_service_task_required' : 'automated_fulfilment_not_available';
       await finishStep(db, step.id, 'failed', undefined, error);

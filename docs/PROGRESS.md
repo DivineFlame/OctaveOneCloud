@@ -65,7 +65,8 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Subscription record on activation | ✅ | |
 | Subscription lifecycle: cancel at period end, scheduled downgrade, operator suspend/resume (worker → adapters, evidence-gated, retried) | ✅ | `docs/subscriptions.md`; reference adapter only |
 | One real hosted app connected | ⛔ | Needs an operational app |
-| Usage metering reserve/settle, concurrent caps | ✅ | Not yet exposed via API |
+| Usage metering reserve/settle, concurrent caps | ✅ | |
+| Signed app service API (entitlements, reserve/settle/release), monthly quotas, usage packs, customer usage page | ✅ | `docs/app-adapter-contract.md#calling-octaveonecloud-app-service-api` |
 | Access revocation (suspend/resume) flows | ✅ | Entitlements revoked/restored; data never deleted |
 
 ## Stage 4 — Recurrence and combos
