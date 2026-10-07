@@ -1,5 +1,5 @@
 import { PrismaClient } from '@ooc/db';
-import { AdapterRegistry, CashfreeClient, expireStaleReservations, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
+import { AdapterRegistry, CashfreeClient, expireStaleReservations, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
 import { SellerProfile } from '@ooc/shared';
 import { log } from './log';
 
@@ -85,5 +85,13 @@ export async function sweep(deps: Deps, enqueue: { inbox: (id: string) => Promis
   if (deps.seller) {
     for (const o of await ordersAwaitingInvoice(deps.db, 50)) if ((await issueInvoice(deps, o.id))?.result === 'issued') invoices++;
   }
-  if (inbox.length || jobs.length || pending.length || expired || invoices) log('info', 'sweep', { inbox: inbox.length, jobs: jobs.length, reconcile: pending.length, expiredReservations: expired, invoices });
+  // Cancellations at period end, scheduled downgrades and operator suspend/resume requests.
+  const lifecycle = await processSubscriptionLifecycle(deps.db, deps.adapters);
+  for (const l of lifecycle) {
+    if (l.result === 'done') log('info', 'subscription lifecycle', { ...l });
+    else if (l.result === 'retry_later') log('warn', 'subscription lifecycle deferred', { ...l });
+  }
+  if (inbox.length || jobs.length || pending.length || expired || invoices || lifecycle.length) {
+    log('info', 'sweep', { inbox: inbox.length, jobs: jobs.length, reconcile: pending.length, expiredReservations: expired, invoices, lifecycle: lifecycle.length });
+  }
 }

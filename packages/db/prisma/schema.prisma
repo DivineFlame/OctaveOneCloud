@@ -665,6 +665,15 @@ model Subscription {
   graceEndsAt        DateTime?
   mandateId          String?            @db.Uuid
   sourceOrderItemId  String?            @db.Uuid
+  // Lifecycle work is requested here and carried out by the worker through the app adapters.
+  // lifecycleVersion increments on every completed transition and scopes adapter idempotency keys.
+  lifecycleVersion   Int                @default(0)
+  pendingAction      String? // suspend | resume (operator requests)
+  pendingActionReason String?
+  lastLifecycleError String?
+  nextLifecycleAttemptAt DateTime?
+  suspendedAt        DateTime?
+  cancelledAt        DateTime?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   org                Organization       @relation(fields: [orgId], references: [id])

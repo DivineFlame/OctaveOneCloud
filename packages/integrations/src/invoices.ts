@@ -109,7 +109,7 @@ export async function issueInvoiceForOrder(db: PrismaClient, orderId: string, se
           taxBreakdown: [...breakdown.values()] as unknown as Prisma.InputJsonValue,
           billingSnapshot: {
             seller: { legalName: seller.legalName, address: seller.address, gstin: seller.gstin, stateCode: seller.stateCode },
-            buyer: { legalName: org.legalName ?? org.name, gstin: org.gstin, address: org.billingAddress, stateCode: org.stateCode, country: org.country, email: org.billingEmail },
+            buyer: { legalName: org.legalName ?? org.name, gstin: org.gstin, address: addressText(org.billingAddress), stateCode: org.stateCode, country: org.country, email: org.billingEmail },
             placeOfSupply: org.country === 'IN' ? org.stateCode : 'outside India',
             supplyType: quote.supplyType,
             reverseCharge: false,
@@ -128,6 +128,16 @@ export async function issueInvoiceForOrder(db: PrismaClient, orderId: string, se
     if (again) return { result: 'exists', invoiceId: again.id, number: again.number };
     throw e;
   }
+}
+
+/** Billing addresses are stored as a small string map; invoices print them as one line. */
+export function addressText(a: unknown): string | null {
+  if (typeof a === 'string') return a.trim() || null;
+  if (a && typeof a === 'object' && !Array.isArray(a)) {
+    const parts = Object.values(a as Record<string, unknown>).filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim());
+    return parts.length ? parts.join(', ') : null;
+  }
+  return null;
 }
 
 export class CreditNoteError extends Error {}

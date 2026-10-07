@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Prisma } from '@ooc/db';
 import { computeQuote, SellerProfile } from '@ooc/shared';
-import { CreditNoteError, financialYear, issueCreditNote, issueInvoiceForOrder, ordersAwaitingInvoice } from '../src/invoices';
+import { CreditNoteError, addressText, financialYear, issueCreditNote, issueInvoiceForOrder, ordersAwaitingInvoice } from '../src/invoices';
 import { db, makeOrg, makeProduct, reset } from './fixtures';
 
 const seller: SellerProfile = { legalName: 'Octave Test Pvt Ltd', address: '1 Test Road, Bengaluru', gstin: '29AAAAA0000A1Z5', stateCode: '29', invoicePrefix: 'OOC', creditNotePrefix: 'OCN' };
@@ -46,6 +46,15 @@ describe('financial year', () => {
     expect(financialYear(new Date('2027-03-31T18:29:59Z'))).toBe('26-27'); // 23:59:59 IST, 31 March
     expect(financialYear(new Date('2027-03-31T18:30:00Z'))).toBe('27-28'); // 00:00 IST, 1 April
     expect(financialYear(new Date('2099-06-01T00:00:00Z'))).toBe('99-00');
+  });
+});
+
+describe('address text', () => {
+  it('prints stored address maps as one line', () => {
+    expect(addressText({ address: '5 Market St, Bengaluru' })).toBe('5 Market St, Bengaluru');
+    expect(addressText({ line1: '5 Market St', city: 'Bengaluru', pin: ' ' })).toBe('5 Market St, Bengaluru');
+    expect(addressText(null)).toBeNull();
+    expect(addressText(['x'])).toBeNull();
   });
 });
 

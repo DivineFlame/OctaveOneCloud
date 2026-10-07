@@ -55,13 +55,13 @@ export const SUBSCRIPTION_STATUSES = ['pending_activation', 'trialing', 'active'
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 export const subscriptionMachine = machine<SubscriptionStatus>('subscription', {
   pending_activation: ['trialing', 'active', 'cancelled'],
-  trialing: ['active', 'past_due', 'cancelled', 'cancel_scheduled'],
-  active: ['past_due', 'cancel_scheduled', 'cancelled'],
+  trialing: ['active', 'past_due', 'cancelled', 'cancel_scheduled', 'suspended'],
+  active: ['past_due', 'cancel_scheduled', 'cancelled', 'suspended'],
   past_due: ['active', 'grace', 'suspended', 'cancelled'],
   grace: ['active', 'suspended', 'cancelled'],
-  // Suspension never deletes data; resumption restores access.
-  suspended: ['active', 'cancelled'],
-  cancel_scheduled: ['active', 'cancelled'],
+  // Suspension never deletes data; resumption restores access (to cancel_scheduled if a cancellation is pending).
+  suspended: ['active', 'cancel_scheduled', 'cancelled'],
+  cancel_scheduled: ['active', 'cancelled', 'suspended'],
   cancelled: [],
 });
 

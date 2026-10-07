@@ -36,7 +36,7 @@ export default function Admin() {
   return (
     <>
       <h1>Operations console</h1>
-      <p className="row"><a className="btn secondary" href="/admin/support">Support queue</a><a className="btn secondary" href="/admin/invoices">Invoices</a></p>
+      <p className="row"><a className="btn secondary" href="/admin/support">Support queue</a><a className="btn secondary" href="/admin/invoices">Invoices</a><a className="btn secondary" href="/admin/subscriptions">Subscriptions</a></p>
       <h2>Integrations</h2>
       <div className="grid">
         <div className="card"><h3>Cashfree</h3><p>Environment: {data.cashfree.env} · API {data.cashfree.apiVersion}</p><p>Webhook secret: {data.cashfree.webhookSecretConfigured ? 'configured' : 'missing'} · Subscriptions: {data.cashfree.subscriptionsEnabled ? 'enabled' : 'disabled'}</p></div>

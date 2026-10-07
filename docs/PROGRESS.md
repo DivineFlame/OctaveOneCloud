@@ -59,10 +59,11 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Versioned adapter contract (HTTP, signed) + reference adapter + registry | ✅ | Reference adapter refuses production |
 | Provisioning workflow with evidence, bundles, partial failure, retry of failed components | ✅ | |
 | Entitlement grants with merge policies (no double-grant) | ✅ | |
-| Subscription record on activation | ✅ | Lifecycle (cancel/downgrade/suspend) not built |
+| Subscription record on activation | ✅ | |
+| Subscription lifecycle: cancel at period end, scheduled downgrade, operator suspend/resume (worker → adapters, evidence-gated, retried) | ✅ | `docs/subscriptions.md`; reference adapter only |
 | One real hosted app connected | ⛔ | Needs an operational app |
 | Usage metering reserve/settle, concurrent caps | ✅ | Not yet exposed via API |
-| Access revocation (suspend/resume) flows | ⬜ | Adapter methods exist |
+| Access revocation (suspend/resume) flows | ✅ | Entitlements revoked/restored; data never deleted |
 
 ## Stage 4 — Recurrence and combos
 
@@ -70,7 +71,8 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 |---|---|
 | Mandates (Cashfree Subscriptions), single collection owner | ⬜ (schema ready, events stored) |
 | Renewals, reminders, dunning, grace periods | ⬜ (`RenewalRun` uniqueness guard exists) |
-| Upgrades (prorated quote), scheduled downgrades, cancel at period end | ⬜ |
+| Scheduled downgrades, cancel at period end | ✅ |
+| Upgrades (prorated quote + payment) | ⬜ |
 | Agent approval policies | ✅ library (`approvals.ts`); ⬜ API/UI |
 | Agent runtime gateway, tool/connector scopes, budgets | ⬜ |
 | Connector grants (encrypted OAuth tokens) | 🟡 cipher + schema; ⬜ OAuth flows |

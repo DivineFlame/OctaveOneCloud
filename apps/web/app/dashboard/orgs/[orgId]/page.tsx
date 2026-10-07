@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { api, describeError } from '@/lib/api';
 import { useMe } from '@/components/useMe';
 
-interface Org { id: string; name: string; legalName: string | null; gstin: string | null; billingEmail: string | null; stateCode: string | null; country: string }
+interface Org { id: string; name: string; legalName: string | null; gstin: string | null; billingEmail: string | null; billingAddress: Record<string, string> | null; stateCode: string | null; country: string }
 interface Member { id: string; role: string; user: { id: string; email: string; name: string | null } }
 
 export default function OrgPage({ params }: { params: Promise<{ orgId: string }> }) {
@@ -39,8 +39,9 @@ export default function OrgPage({ params }: { params: Promise<{ orgId: string }>
     }
     const gstin = String(f.get('gstin') ?? '').trim();
     body.gstin = gstin ? gstin.toUpperCase() : null;
+    const address = String(f.get('address') ?? '').replace(/\s+/g, ' ').trim();
     try {
-      await api(`/orgs/${orgId}/billing`, { method: 'PATCH', body });
+      await api(`/orgs/${orgId}/billing`, { method: 'PATCH', body: address ? { ...body, billingAddress: { address } } : body });
       setMsg({ text: 'Billing details saved.' });
       await load();
     } catch (err) {
@@ -65,7 +66,7 @@ export default function OrgPage({ params }: { params: Promise<{ orgId: string }>
     <>
       <p><Link href="/dashboard">← Dashboard</Link></p>
       <h1>{org.name}</h1>
-      <div className="row"><span className="badge">Your role: {role ?? '…'}</span><Link className="btn" href="/pricing">Browse products</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/invoices`}>Invoices</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/support`}>Support</Link></div>
+      <div className="row"><span className="badge">Your role: {role ?? '…'}</span><Link className="btn" href="/pricing">Browse products</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/subscriptions`}>Subscriptions</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/invoices`}>Invoices</Link><Link className="btn secondary" href={`/dashboard/orgs/${orgId}/support`}>Support</Link></div>
       {msg && <p className={msg.error ? 'error' : 'muted'} role={msg.error ? 'alert' : 'status'}>{msg.text}</p>}
 
       <h2>Billing details</h2>
@@ -74,6 +75,7 @@ export default function OrgPage({ params }: { params: Promise<{ orgId: string }>
         <label>Legal name<input name="legalName" defaultValue={org.legalName ?? ''} disabled={!canBilling} /></label>
         <label>GSTIN <span className="hint">(optional)</span><input name="gstin" defaultValue={org.gstin ?? ''} maxLength={15} disabled={!canBilling} /></label>
         <label>Billing email<input name="billingEmail" type="email" defaultValue={org.billingEmail ?? ''} disabled={!canBilling} /></label>
+        <label>Billing address <span className="hint">(printed on invoices)</span><textarea name="address" rows={2} maxLength={200} defaultValue={org.billingAddress ? Object.values(org.billingAddress).join(', ') : ''} disabled={!canBilling} /></label>
         <label>GST state code<input name="stateCode" inputMode="numeric" pattern="\d{2}" defaultValue={org.stateCode ?? ''} disabled={!canBilling} aria-describedby="state-hint" />
           <span id="state-hint" className="hint">Two digits, e.g. 29 for Karnataka. Must match the first two digits of your GSTIN.</span></label>
         {canBilling && <button className="btn" type="submit">Save billing details</button>}
