@@ -81,6 +81,9 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 
 ## Stage 5 — Launch gates (all ⛔ until done)
 
+Automated part: **Admin → Launch readiness** / `node dist/cli/preflight.js` (exit 1 while any check fails).
+
+
 - [ ] Merchant/account activation (Cashfree production, ResellerClub live)
 - [ ] Production webhook URLs and secrets configured
 - [ ] Every product for sale has verified capabilities and prices

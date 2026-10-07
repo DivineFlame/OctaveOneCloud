@@ -7,7 +7,7 @@ import { PRISMA } from '../common/prisma.module';
 import { ZodPipe } from '../common/zod.pipe';
 import { AuditService } from '../common/audit.service';
 import { AuthContext, CurrentAuth, OperatorOnly } from '../auth/decorators';
-import { RESELLERCLUB_CAPABILITIES } from '@ooc/integrations';
+import { RESELLERCLUB_CAPABILITIES, launchReadiness } from '@ooc/integrations';
 
 const Resolve = z.object({ outcome: z.enum(['succeeded', 'failed']), providerRef: z.string().max(200).optional(), note: z.string().min(5).max(2000) });
 const take = (v?: string) => Math.min(Math.max(Number(v) || 50, 1), 200);
@@ -20,6 +20,13 @@ export class AdminController {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly audit: AuditService,
   ) {}
+
+  /** Launch readiness: automated checks plus the manual launch gates (no secret values). */
+  @OperatorOnly('operator_admin')
+  @Get('readiness')
+  readiness() {
+    return launchReadiness(this.db, this.config);
+  }
 
   /** Integration health without exposing any secret values. */
   @Get('integrations')

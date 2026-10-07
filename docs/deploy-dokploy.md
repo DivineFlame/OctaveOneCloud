@@ -124,6 +124,17 @@ Sign in at `https://app.example.com/login`, open **Dashboard → Security**, ena
 3. ResellerClub: allowlist the server IP, fill `docs/provider-capabilities.md` with evidence, then set
    `RESELLERCLUB_ENV=live` and, only after release sign-off, `RESELLERCLUB_ALLOW_LIVE_MUTATIONS=true`.
 4. Review tax rules as `operator_finance`, add prices, publish plan versions and activate products from `/admin`.
+5. Run the pre-flight check and fix every **FAIL**:
+
+   ```bash
+   # Dokploy → service api → Terminal (or on the server: docker compose -p <app> exec api …)
+   node dist/cli/preflight.js
+   ```
+
+   The same report is in **Admin → Launch readiness**. It checks HTTPS/cookies, SMTP, Cashfree mode and webhook
+   secret, seller details, reviewed tax rules and SAC codes, active adapters, operators with MFA, migrations and
+   unresolved failures, and lists the manual launch gates (accountant, restore drill, load and security tests,
+   release authorisation) that need recorded evidence. Exit code 1 means not ready.
 
 ## Updating
 
