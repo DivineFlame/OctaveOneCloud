@@ -28,4 +28,23 @@ describe('launch readiness', () => {
     const finance = await makeOperator(app, 'finance@example.com', 'operator_finance');
     await finance.agent.get('/v1/admin/readiness').expect(403);
   });
+
+  it('activates an adapter only when its URL and secret are configured', async () => {
+    const admin = await makeOperator(app, 'adm@example.com');
+    const missing = await admin.agent.post('/v1/admin/adapters/app.billing/status').set('Origin', 'http://localhost:3000').send({ status: 'sandbox', note: 'testing billing app' }).expect(400);
+    expect(missing.body.error).toBe('adapter_not_configured');
+    process.env.APP_ADAPTER_BILLING_URL = 'http://billing.internal/ooc';
+    process.env.APP_ADAPTER_BILLING_SECRET = 'x'.repeat(40);
+    try {
+      const r = await admin.agent.post('/v1/admin/adapters/app.billing/status').set('Origin', 'http://localhost:3000').send({ status: 'sandbox', note: 'contract tests passed', name: 'Billing app' }).expect(201);
+      expect(r.body).toMatchObject({ key: 'app.billing', status: 'sandbox', baseUrl: 'http://billing.internal/ooc', authRef: 'APP_ADAPTER_BILLING_SECRET' });
+      expect(JSON.stringify(r.body)).not.toContain('x'.repeat(40));
+      await admin.agent.post('/v1/admin/adapters/BAD/status').set('Origin', 'http://localhost:3000').send({ status: 'sandbox', note: 'bad key' }).expect(400);
+      const finance = await makeOperator(app, 'fin2@example.com', 'operator_finance');
+      await finance.agent.post('/v1/admin/adapters/app.billing/status').set('Origin', 'http://localhost:3000').send({ status: 'active', note: 'nope' }).expect(403);
+    } finally {
+      delete process.env.APP_ADAPTER_BILLING_URL;
+      delete process.env.APP_ADAPTER_BILLING_SECRET;
+    }
+  });
 });

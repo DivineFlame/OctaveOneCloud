@@ -99,3 +99,26 @@ describe('roles', () => {
     expect(canAssignRole('admin', 'owner')).toBe(false);
   });
 });
+
+describe('credential key rotation', () => {
+  it('decrypts with previous keys and rejects malformed or clashing entries', async () => {
+    const { CredentialCipher } = await import('../src/crypto');
+    const { encryptionKeys, loadConfig } = await import('../src/config');
+    const k1 = 'a'.repeat(64);
+    const k2 = 'b'.repeat(64);
+    const base = { APP_URL: 'http://localhost:3000', API_URL: 'http://localhost:4000', DATABASE_URL: 'postgresql://x', REDIS_URL: 'redis://x' };
+    const old = new CredentialCipher('k1', { k1 }).encrypt('secret', 'aad');
+    const c = loadConfig({ ...base, CREDENTIAL_ENCRYPTION_KEY: k2, CREDENTIAL_ENCRYPTION_KEY_ID: 'k2', CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS: `k1:${k1}` });
+    const cipher = new CredentialCipher('k2', encryptionKeys(c));
+    expect(cipher.decrypt(old.ciphertext, 'aad')).toBe('secret');
+    expect(cipher.encrypt('new', 'aad').keyId).toBe('k2');
+    expect(() => loadConfig({ ...base, CREDENTIAL_ENCRYPTION_KEY: k2, CREDENTIAL_ENCRYPTION_KEY_ID: 'k2', CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS: 'k1:short' })).toThrow(/id:64-hex/);
+    expect(() => loadConfig({ ...base, CREDENTIAL_ENCRYPTION_KEY: k2, CREDENTIAL_ENCRYPTION_KEY_ID: 'k2', CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS: `k2:${k1}` })).toThrow(/must not reuse/);
+    try {
+      loadConfig({ ...base, CREDENTIAL_ENCRYPTION_KEY: k2, CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS: `k1:${'z'.repeat(64)}` });
+    } catch (e) {
+      expect(String(e)).not.toContain('zzzz'); // never echoes key material
+    }
+  });
+});
+

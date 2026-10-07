@@ -37,7 +37,9 @@ export const baseEnvSchema = z.object({
   COOKIE_SECURE: bool,
   /** Root key for encrypting stored credentials (OAuth tokens, TOTP secrets). Rotate via key id. */
   CREDENTIAL_ENCRYPTION_KEY: hexKey,
-  CREDENTIAL_ENCRYPTION_KEY_ID: z.string().default('k1'),
+  CREDENTIAL_ENCRYPTION_KEY_ID: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/).default('k1'),
+  /** Retired keys still needed to decrypt older data during rotation: "k1:<64 hex>,k2:<64 hex>". */
+  CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS: optionalString,
 
   OIDC_ISSUER_URL: optionalString,
   OIDC_CLIENT_ID: optionalString,
@@ -146,6 +148,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       if (!c[k]) problems.push(`${k} is required when CASHFREE_ENV=${c.CASHFREE_ENV}`);
     }
   }
+  try {
+    const prev = previousEncryptionKeys(c);
+    if (c.CREDENTIAL_ENCRYPTION_KEY_ID in prev) problems.push('CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS must not reuse the current CREDENTIAL_ENCRYPTION_KEY_ID');
+  } catch (e) {
+    problems.push((e as Error).message);
+  }
   if (c.SMTP_URL) {
     if (!/^smtps?:\/\//.test(c.SMTP_URL)) problems.push('SMTP_URL must start with smtp:// or smtps://');
     if (!c.MAIL_FROM) problems.push('MAIL_FROM is required when SMTP_URL is set');
@@ -169,6 +177,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (tier !== 'production' && c.RESELLERCLUB_ENV === 'live') problems.push('RESELLERCLUB_ENV=live is only allowed when APP_ENV=production');
   if (problems.length) throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   return c;
+}
+
+/** Parses CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS ("id:hex,id:hex") without echoing key material in errors. */
+export function previousEncryptionKeys(c: Pick<AppConfig, 'CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS'>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of (c.CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS ?? '').split(',').map((p) => p.trim()).filter(Boolean)) {
+    const m = /^([A-Za-z0-9_-]{1,32}):([0-9a-fA-F]{64})$/.exec(part);
+    if (!m) throw new Error('CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS must be a comma-separated list of id:64-hex-characters');
+    out[m[1]!] = m[2]!;
+  }
+  return out;
+}
+
+/** All keys for the credential cipher: previous ones (decrypt only) plus the current one (encrypt + decrypt). */
+export function encryptionKeys(c: Pick<AppConfig, 'CREDENTIAL_ENCRYPTION_KEY' | 'CREDENTIAL_ENCRYPTION_KEY_ID' | 'CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS'>): Record<string, string> {
+  return { ...previousEncryptionKeys(c), [c.CREDENTIAL_ENCRYPTION_KEY_ID]: c.CREDENTIAL_ENCRYPTION_KEY };
 }
 
 /** True when the app is deliberately served without HTTPS (IP:port trial or local run). */

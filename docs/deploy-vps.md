@@ -132,7 +132,7 @@ No domain but want HTTPS? Use `203-0-113-10.sslip.io` as the domain (your IP wit
 - Dokploy → **Monitoring**: CPU/RAM/disk per service; set notifications (email/Telegram/Slack) for failed deploys.
 - An external uptime check (e.g. UptimeRobot, Better Stack) on `https://app.example.com/` every 1–5 min.
 - Weekly glance: `db-backup` healthy, disk < 70 % (`df -h`), `./restore.sh list` shows recent dumps.
-- `SENTRY_DSN` is available in the environment for error tracking once you add a Sentry project.
+- Logs: Dokploy → service → Logs (structured JSON). Error tracking (Sentry/OpenTelemetry) is not built in yet.
 
 ## 8. Maintenance
 

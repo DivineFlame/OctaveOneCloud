@@ -50,7 +50,8 @@ export async function launchReadiness(db: PrismaClient, c: AppConfig, now = new 
   add('config.cookie_secure', 'security', 'Session cookies are Secure', c.COOKIE_SECURE ? 'pass' : 'fail', `COOKIE_SECURE=${c.COOKIE_SECURE}`);
   add('config.smtp', 'configuration', 'Email delivery configured', c.SMTP_URL && c.MAIL_FROM ? 'pass' : 'fail', c.SMTP_URL ? 'SMTP_URL and MAIL_FROM set' : 'SMTP_URL missing');
   add('config.support_email', 'operations', 'Support notifications go to a mailbox', c.SUPPORT_NOTIFY_EMAIL ? 'pass' : 'warn', c.SUPPORT_NOTIFY_EMAIL ? 'SUPPORT_NOTIFY_EMAIL set' : 'New tickets are only visible in the admin queue');
-  add('config.monitoring', 'operations', 'Error tracking configured', c.SENTRY_DSN || c.OTEL_EXPORTER_OTLP_ENDPOINT ? 'pass' : 'warn', c.SENTRY_DSN ? 'SENTRY_DSN set' : c.OTEL_EXPORTER_OTLP_ENDPOINT ? 'OTLP exporter set' : 'No SENTRY_DSN / OTLP endpoint; rely on Dokploy logs and uptime checks');
+  // No error-tracking SDK is built in yet (SENTRY_DSN / OTEL_EXPORTER_OTLP_ENDPOINT are reserved names).
+  add('config.monitoring', 'operations', 'Monitoring in place', 'warn', 'Structured JSON logs only: set up Dokploy notifications, an external uptime check and log review (docs/deploy-vps.md §7)');
 
   // ── Payments ──
   add('payments.cashfree_env', 'payments', 'Cashfree in production mode', c.CASHFREE_ENV === 'production' ? 'pass' : 'fail', `CASHFREE_ENV=${c.CASHFREE_ENV}`);

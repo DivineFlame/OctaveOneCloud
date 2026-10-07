@@ -10,6 +10,7 @@ import { AuthContext, CurrentAuth, OperatorOnly } from '../auth/decorators';
 import { RESELLERCLUB_CAPABILITIES, launchReadiness } from '@ooc/integrations';
 
 const Resolve = z.object({ outcome: z.enum(['succeeded', 'failed']), providerRef: z.string().max(200).optional(), note: z.string().min(5).max(2000) });
+const AdapterStatusBody = z.object({ status: z.enum(['unconfigured', 'sandbox', 'active', 'disabled']), note: z.string().trim().min(3).max(500), name: z.string().trim().min(2).max(80).optional() }).strict();
 const take = (v?: string) => Math.min(Math.max(Number(v) || 50, 1), 200);
 
 @OperatorOnly()
@@ -89,6 +90,35 @@ export class AdminController {
   @Get('audit')
   auditLog(@Query('orgId') orgId?: string, @Query('take') t?: string) {
     return this.db.auditEvent.findMany({ where: orgId ? { orgId } : undefined, orderBy: { createdAt: 'desc' }, take: take(t) });
+  }
+
+  /**
+   * Sets an app adapter's status. `sandbox`/`active` require APP_ADAPTER_<NAME>_URL and _SECRET (≥ 32 chars) in the
+   * environment (the worker reads the same file); `active` in production also requires an https URL. Audited.
+   */
+  @OperatorOnly('operator_admin')
+  @Post('adapters/:key/status')
+  async adapterStatus(@Param('key') key: string, @CurrentAuth() a: AuthContext, @Body(new ZodPipe(AdapterStatusBody)) body: z.infer<typeof AdapterStatusBody>) {
+    const m = /^app\.([a-z0-9_]{1,40})$/.exec(key);
+    if (!m) throw new BadRequestException({ error: 'invalid_adapter_key', message: 'Adapter keys look like app.<name> (APP_ADAPTER_<NAME>_URL)' });
+    const envName = m[1]!.toUpperCase();
+    const url = process.env[`APP_ADAPTER_${envName}_URL`]?.trim();
+    const secret = process.env[`APP_ADAPTER_${envName}_SECRET`] ?? '';
+    if (body.status === 'sandbox' || body.status === 'active') {
+      const missing = [!url && `APP_ADAPTER_${envName}_URL`, secret.length < 32 && `APP_ADAPTER_${envName}_SECRET (≥ 32 characters)`].filter(Boolean);
+      if (missing.length) throw new BadRequestException({ error: 'adapter_not_configured', message: `Set ${missing.join(' and ')} in the environment and redeploy first` });
+      if (body.status === 'active' && this.config.NODE_ENV === 'production' && !url!.startsWith('https://')) {
+        throw new BadRequestException({ error: 'adapter_url_not_https', message: 'Active adapters must use an https URL' });
+      }
+    }
+    const before = await this.db.appAdapter.findUnique({ where: { key } });
+    const row = await this.db.appAdapter.upsert({
+      where: { key },
+      update: { status: body.status, baseUrl: url ?? null, authRef: `APP_ADAPTER_${envName}_SECRET`, ...(body.name ? { name: body.name } : {}) },
+      create: { key, name: body.name ?? key, status: body.status, baseUrl: url ?? null, authRef: `APP_ADAPTER_${envName}_SECRET` },
+    });
+    await this.audit.record({ actorId: a.user.id, actorType: 'operator', action: 'adapter.status_changed', targetType: 'adapter', targetId: key, metadata: { from: before?.status ?? null, to: body.status, note: body.note } });
+    return row;
   }
 
   @Get('orders')
