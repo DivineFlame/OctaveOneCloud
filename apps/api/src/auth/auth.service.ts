@@ -75,6 +75,11 @@ export class AuthService {
       throw new UnauthorizedException({ error: 'invalid_credentials' });
     }
     if (user.failedLogins || user.loginLockedUntil) await this.db.user.update({ where: { id: user.id }, data: { failedLogins: 0, loginLockedUntil: null } });
+    return this.startSession(user, meta, 'auth.login');
+  }
+
+  /** Creates a new session (fresh random token; only its hash is stored). Used by password and OIDC sign-in. */
+  async startSession(user: User, meta: { ip: string | null; userAgent?: string }, action: string, metadata?: Record<string, unknown>) {
     const token = randomToken();
     const session = await this.db.session.create({
       data: {
@@ -85,7 +90,7 @@ export class AuthService {
         expiresAt: new Date(Date.now() + this.config.SESSION_TTL_HOURS * 3600_000),
       },
     });
-    await this.audit.record({ actorId: user.id, actorType: user.operatorRole ? 'operator' : 'user', action: 'auth.login', targetType: 'session', targetId: session.id, ip: meta.ip });
+    await this.audit.record({ actorId: user.id, actorType: user.operatorRole ? 'operator' : 'user', action, targetType: 'session', targetId: session.id, ip: meta.ip, metadata });
     return { token, session, user, mfaRequired: Boolean(user.mfaEnabledAt) };
   }
 

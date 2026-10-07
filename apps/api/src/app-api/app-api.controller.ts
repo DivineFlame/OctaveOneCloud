@@ -5,6 +5,7 @@ import { PrismaClient } from '@ooc/db';
 import { APPROVAL_ACTION_TYPES, APPROVER_PERMISSION, ApprovalError, AppUsageError, appEntitlements, appRelease, appReserve, appServesOrg, appSettle, consumeApproval, requestApproval } from '@ooc/integrations';
 import { roleHasPermission } from '@ooc/shared';
 import { MailService } from '../auth/mail.service';
+import { ConnectorsService } from '../connectors/connectors.service';
 import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '@ooc/shared';
 import { ZodPipe } from '../common/zod.pipe';
@@ -32,6 +33,7 @@ const ApprovalReq = z.object({
   agentRunId: z.string().max(200).optional(),
   ttlSeconds: z.number().int().min(60).max(7 * 86_400).optional(),
 }).strict();
+const ConnectorToken = z.object({ orgId: z.uuid(), provider: z.string().regex(/^[a-z0-9_]{1,40}$/) }).strict();
 const ApprovalRef = z.object({ orgId: z.uuid(), approvalId: z.uuid() }).strict();
 const ApprovalConsume = z.object({ orgId: z.uuid(), approvalId: z.uuid(), actionType: ActionType, payload: Payload }).strict();
 
@@ -54,7 +56,15 @@ export class AppApiController {
     @Inject(PRISMA) private readonly db: PrismaClient,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly mail: MailService,
+    private readonly connectors: ConnectorsService,
   ) {}
+
+  /** A customer's OAuth access token for a connector this app is allowed to use (refreshed if needed, audited). */
+  @HttpCode(200)
+  @Post('connectors/token')
+  connectorToken(@Req() req: AppRequest, @Body(new ZodPipe(ConnectorToken)) body: z.infer<typeof ConnectorToken>) {
+    return this.connectors.tokenForApp(req.appKey!, body.orgId, body.provider);
+  }
 
   private async served(app: string, orgId: string) {
     if (!(await appServesOrg(this.db, app, orgId))) throw new ForbiddenException({ error: 'org_not_served' });

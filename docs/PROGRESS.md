@@ -37,7 +37,7 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Load-test script + indicative baseline | ✅ | `scripts/loadtest.mjs`; VPS run still required (`docs/evidence/`) |
 | VPS bootstrap (Ubuntu 24.04 hardening + Dokploy install) | 🟡 | `deploy/vps/setup-ubuntu.sh`; shellcheck-clean, not yet run on a real VPS |
 | PostgreSQL in stack: tuning, nightly verified dumps, restore/drill tooling | ✅ | `db-backup` service + `deploy/postgres/restore.sh`; backup, drill and full replace tested on the Compose stack |
-| OIDC login with existing identity provider | ⬜ | Config placeholders only |
+| OIDC login with existing identity provider | ✅ | PKCE, verified-email linking, invite-only by default; tested against a mock IdP — needs a real IdP run (`docs/identity-and-connectors.md`) |
 | SMTP transport | ✅ | nodemailer via `SMTP_URL`; required in production |
 | GST invoices: auto-issue on payment, gap-free FY numbering, immutability, credit notes, printable view | ✅ | `docs/invoicing.md`; accountant sign-off pending; no e-invoicing (IRN) |
 | Support tickets (customer + operator queue, internal notes, email) | ✅ | |
@@ -80,7 +80,7 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Upgrades (prorated charge + payment, applied via adapter) | ✅ |
 | Agent approval policies | ✅ library, signed app API, role policy, customer Approvals page, email to approvers, expiry |
 | Agent runtime gateway, tool/connector scopes, budgets | ⬜ |
-| Connector grants (encrypted OAuth tokens) | 🟡 cipher + schema; ⬜ OAuth flows |
+| Connector grants (encrypted OAuth tokens) | 🟡 generic OAuth2 + PKCE connect/revoke, app token API with refresh; mock-provider tested — each real provider needs verification |
 
 ## Stage 5 — Launch gates (all ⛔ until done)
 

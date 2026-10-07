@@ -21,6 +21,7 @@ import { RefundsModule } from './refunds/refunds.module';
 import { AppApiModule } from './app-api/app-api.module';
 import { UsageModule } from './usage/usage.module';
 import { ApprovalsModule } from './approvals/approvals.module';
+import { ConnectorsModule } from './connectors/connectors.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { ApprovalsModule } from './approvals/approvals.module';
     AppApiModule,
     UsageModule,
     ApprovalsModule,
+    ConnectorsModule,
   ],
   providers: [
     // Throttler runs before the session guard (guards execute in registration order).

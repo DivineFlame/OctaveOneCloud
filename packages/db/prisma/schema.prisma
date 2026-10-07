@@ -50,7 +50,23 @@ model User {
   memberships     Membership[]
   sessions        Session[]
   tokens          UserToken[]
+  identities      UserIdentity[]
   invitationsSent Invitation[]  @relation("InvitedBy")
+}
+
+// External sign-in identities (OIDC). Linked by issuer + subject, never by email alone.
+model UserIdentity {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  issuer      String
+  subject     String
+  email       String?
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuer, subject])
+  @@index([userId])
 }
 
 model Session {
@@ -999,8 +1015,12 @@ model ConnectorGrant {
   orgId        String       @db.Uuid
   provider     String
   scopes       String[]
-  tokenEnc     String // AES-256-GCM ciphertext
+  tokenEnc     String // AES-256-GCM ciphertext of { access_token, refresh_token, token_type }
   keyId        String
+  // Human label from the provider (e.g. account email) when available.
+  accountLabel String?
+  lastUsedAt   DateTime?
+  lastError    String?
   expiresAt    DateTime?
   revokedAt    DateTime?
   createdById  String?      @db.Uuid

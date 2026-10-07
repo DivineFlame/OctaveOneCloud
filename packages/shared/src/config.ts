@@ -42,6 +42,11 @@ export const baseEnvSchema = z.object({
   OIDC_ISSUER_URL: optionalString,
   OIDC_CLIENT_ID: optionalString,
   OIDC_CLIENT_SECRET: optionalString,
+  // Button label on the login page, e.g. "Google Workspace" or "Octave staff login".
+  OIDC_DISPLAY_NAME: z.preprocess((v) => (v === '' ? undefined : v), z.string().max(60).default('single sign-on')),
+  OIDC_SCOPES: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('openid email profile')),
+  // Create a new account on first OIDC sign-in (otherwise only existing accounts with the same verified email link).
+  OIDC_ALLOW_SIGNUP: bool,
 
   RESELLERCLUB_ENV: z.enum(['disabled', 'demo', 'live']).default('disabled'),
   RESELLERCLUB_BASE_URL: optionalString,
@@ -127,6 +132,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   if (c.RESELLERCLUB_ENV !== 'live' && c.RESELLERCLUB_ALLOW_LIVE_MUTATIONS) {
     problems.push('RESELLERCLUB_ALLOW_LIVE_MUTATIONS may only be set when RESELLERCLUB_ENV=live');
+  }
+  const oidc = [c.OIDC_ISSUER_URL, c.OIDC_CLIENT_ID, c.OIDC_CLIENT_SECRET].filter(Boolean).length;
+  if (oidc > 0 && oidc < 3) problems.push('OIDC_ISSUER_URL, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET must be set together');
+  if (c.OIDC_ISSUER_URL && !c.OIDC_ISSUER_URL.startsWith('https://') && c.NODE_ENV === 'production') {
+    problems.push('OIDC_ISSUER_URL must use https');
   }
   if (c.CASHFREE_ENV !== 'disabled') {
     for (const k of ['SELLER_LEGAL_NAME', 'SELLER_ADDRESS', 'SELLER_STATE_CODE'] as const) {
