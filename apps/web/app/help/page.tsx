@@ -14,7 +14,7 @@ export default function Help() {
   return (
     <>
       <h1>Help</h1>
-      <p className="lead">Answers to common questions. Can’t find what you need? Contact our support team with your order ID.</p>
+      <p className="lead">Answers to common questions. Can’t find what you need? Sign in and open a request from your organisation’s Support page.</p>
       {ARTICLES.map((a) => (
         <details key={a.q} className="card" style={{ marginBottom: 12 }}>
           <summary><strong>{a.q}</strong></summary>

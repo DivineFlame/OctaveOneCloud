@@ -61,6 +61,8 @@ export const baseEnvSchema = z.object({
 
   SMTP_URL: optionalString,
   MAIL_FROM: optionalString,
+  /** Where new support tickets and customer replies are announced (optional). */
+  SUPPORT_NOTIFY_EMAIL: optionalString,
 
   SELLER_GSTIN: optionalString,
   SELLER_STATE_CODE: optionalString,
