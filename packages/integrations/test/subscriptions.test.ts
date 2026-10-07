@@ -93,7 +93,7 @@ describe('subscription lifecycle', () => {
     expect(s.priceVersionId).toBe(growth.price.id); // nothing changes until renewal
 
     const r = await processSubscriptionLifecycle(db, adapters, new Date(sub.currentPeriodEnd!.getTime() + 1));
-    expect(r[0]).toMatchObject({ action: 'downgrade', result: 'done' });
+    expect(r[0]).toMatchObject({ action: 'plan_change', result: 'done' });
     expect(adapter.tenants.get(org.id)).toMatchObject({ planVersionId: starter.version.id, entitlements: [{ featureKey: 'crm.seats', limit: 3 }] });
     expect(await db.subscription.findUniqueOrThrow({ where: { id: sub.id } })).toMatchObject({ planVersionId: starter.version.id, priceVersionId: starter.price.id, scheduledChange: null, status: 'active' });
     expect(await activeGrants(org.id)).toEqual([{ featureKey: 'crm.seats', limit: 3n, sourceId: `${sub.sourceOrderItemId}:${starter.version.id}` }]);

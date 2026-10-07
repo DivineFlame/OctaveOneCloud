@@ -413,7 +413,7 @@ model Order {
   totalMinor     BigInt
   // Client-supplied idempotency key for checkout creation (scoped per org).
   idempotencyKey String
-  // purchase | renewal. Renewal orders extend subscriptionId instead of provisioning anything.
+  // purchase | renewal | upgrade. Renewal and upgrade orders act on subscriptionId instead of provisioning anything.
   kind           String       @default("purchase")
   subscriptionId String?      @db.Uuid
   paidAt         DateTime?

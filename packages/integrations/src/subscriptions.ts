@@ -194,7 +194,7 @@ export async function subscriptionComponents(db: PrismaClient | Prisma.Transacti
 /** Entitlement source ids follow the provisioning engine: `<orderItemId>:<componentPlanVersionId>`. */
 const sourceKey = (sub: Subscription) => `${sub.sourceOrderItemId ?? sub.id}:`;
 
-export type LifecycleOutcome = { subscriptionId: string; action: 'suspend' | 'resume' | 'cancel' | 'downgrade' | 'none'; result: 'done' | 'retry_later' | 'raced' | 'skipped'; error?: string };
+export type LifecycleOutcome = { subscriptionId: string; action: 'suspend' | 'resume' | 'cancel' | 'plan_change' | 'none'; result: 'done' | 'retry_later' | 'raced' | 'skipped'; error?: string };
 
 /** Subscriptions with lifecycle work due now. */
 export async function dueLifecycleWork(db: PrismaClient, now = new Date(), limit = 50) {
@@ -231,7 +231,7 @@ export async function runLifecycle(db: PrismaClient, adapters: AdapterRegistry, 
   if (sub.cancelAtPeriodEnd && periodOver && sub.status !== 'cancelled') return cancel(db, adapters, sub, now);
   // Due at the period boundary it was scheduled for, even if the renewal was paid early and the period moved on.
   const changeDue = !!sub.scheduledChange && !!sub.scheduledChangeDueAt && sub.scheduledChangeDueAt <= now;
-  if (changeDue && (sub.status === 'active' || sub.status === 'trialing')) return applyDowngrade(db, adapters, sub, now);
+  if (changeDue && (sub.status === 'active' || sub.status === 'trialing')) return applyPlanChange(db, adapters, sub, now);
   return { subscriptionId, action: 'none', result: 'skipped' };
 }
 
@@ -333,7 +333,7 @@ async function cancel(db: PrismaClient, adapters: AdapterRegistry, sub: Subscrip
   });
 }
 
-async function applyDowngrade(db: PrismaClient, adapters: AdapterRegistry, sub: Subscription, now: Date) {
+async function applyPlanChange(db: PrismaClient, adapters: AdapterRegistry, sub: Subscription, now: Date) {
   const change = sub.scheduledChange as unknown as ScheduledChange;
   const components = await subscriptionComponents(db, change.planVersionId);
   const featuresByVersion = new Map<string, { featureKey: string; limit: bigint | null; mergePolicy: Prisma.EntitlementCreateInput['mergePolicy'] }[]>();
@@ -347,12 +347,12 @@ async function applyDowngrade(db: PrismaClient, adapters: AdapterRegistry, sub: 
   const error = await callComponents(adapters, sub, components, 'change', (a, c, key) =>
     a.changePlan({ orgId: sub.orgId, correlationId: `sub-${sub.id}`, idempotencyKey: key, planVersionId: c.planVersionId, entitlements: payload(c) }),
   );
-  if (error) return deferred(db, sub, 'downgrade', error, now);
+  if (error) return deferred(db, sub, 'plan_change', error, now);
 
   return commit(
     db,
     sub,
-    'downgrade',
+    'plan_change',
     { planVersionId: change.planVersionId, priceVersionId: change.priceVersionId, quantity: change.quantity, scheduledChange: Prisma.DbNull, scheduledChangeDueAt: null },
     async (tx) => {
       await revokeAll(sub, now)(tx);

@@ -12,3 +12,4 @@ export * from './renewals';
 export * from './refunds';
 export * from './readiness';
 export * from './app-usage';
+export * from './upgrades';

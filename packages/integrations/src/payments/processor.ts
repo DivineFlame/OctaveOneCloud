@@ -2,6 +2,7 @@ import { PaymentAttemptStatus, Prisma, PrismaClient, RefundStatus, minorFromDb }
 import { decimalToMinor, redact } from '@ooc/shared';
 import type { CashfreeClient, CashfreePayment } from '../cashfree/client';
 import { applyRenewalPayment } from '../renewals';
+import { applyUpgradePayment } from '../upgrades';
 
 /**
  * Applies payment evidence to local state. Evidence comes from a signature-verified webhook or from
@@ -109,14 +110,14 @@ export async function applyPaymentEvidence(db: PrismaClient, ev: PaymentEvidence
       return { result: 'mismatch', orderId: po.orderId } as const;
     }
 
-    if (po.order.kind === 'renewal') {
-      // Renewals extend the existing subscription; nothing is provisioned again.
-      const renewal = await applyRenewalPayment(tx, po.orderId);
-      if (renewal !== 'extended' && renewal !== 'already_applied') {
+    if (po.order.kind === 'renewal' || po.order.kind === 'upgrade') {
+      // Renewals extend and upgrades change the existing subscription; nothing is provisioned again.
+      const outcome = po.order.kind === 'renewal' ? await applyRenewalPayment(tx, po.orderId) : await applyUpgradePayment(tx, po.orderId);
+      if (outcome !== 'extended' && outcome !== 'already_applied' && outcome !== 'scheduled') {
         await tx.order.update({ where: { id: po.orderId }, data: { status: 'needs_attention' } });
-        await audit(tx, po.orgId, 'renewal.payment_needs_review', po.orderId, { cfPaymentId: ev.cfPaymentId, reason: renewal, action: 'refund_or_manual_extension' });
+        await audit(tx, po.orgId, `${po.order.kind}.payment_needs_review`, po.orderId, { cfPaymentId: ev.cfPaymentId, reason: outcome, action: 'refund_or_manual_change' });
       }
-      await tx.outboxEvent.create({ data: { topic: 'order.paid', aggregateId: po.orderId, payload: { orderId: po.orderId, orgId: po.orgId, source, renewal } } });
+      await tx.outboxEvent.create({ data: { topic: 'order.paid', aggregateId: po.orderId, payload: { orderId: po.orderId, orgId: po.orgId, source, kind: po.order.kind, outcome } } });
       await audit(tx, po.orgId, 'payment.confirmed', po.orderId, { cfPaymentId: ev.cfPaymentId, source });
       return { result: 'paid', orderId: po.orderId, provisioningJobIds: [] } as const;
     }

@@ -3,7 +3,10 @@ import { PrismaClient, SubscriptionStatus, minorFromDb } from '@ooc/db';
 import {
   ScheduledChange,
   SubscriptionError,
+  UpgradeError,
+  createUpgradeOrder,
   downgradeOptions,
+  previewUpgrade,
   requestOperatorAction,
   scheduleCancellation,
   scheduleDowngrade,
@@ -11,6 +14,8 @@ import {
   withdrawScheduledChange,
 } from '@ooc/integrations';
 import { PRISMA } from '../common/prisma.module';
+import { APP_CONFIG } from '../config/config.module';
+import { AppConfig } from '@ooc/shared';
 import { AuditService } from '../common/audit.service';
 
 const include = { org: { select: { id: true, name: true } } } as const;
@@ -19,6 +24,7 @@ const include = { org: { select: { id: true, name: true } } } as const;
 export class SubscriptionsService {
   constructor(
     @Inject(PRISMA) private readonly db: PrismaClient,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly audit: AuditService,
   ) {}
 
@@ -41,6 +47,23 @@ export class SubscriptionsService {
 
   async withdrawChange(orgId: string, id: string, actorId: string) {
     return this.run(orgId, id, actorId, 'subscription.change_withdrawn', () => withdrawScheduledChange(this.db, orgId, id));
+  }
+
+  async upgradePreview(orgId: string, id: string, input: { priceVersionId: string; quantity: number }) {
+    try {
+      return await previewUpgrade(this.db, { orgId, subscriptionId: id, ...input });
+    } catch (e) {
+      throw mapError(e);
+    }
+  }
+
+  /** Creates the prorated upgrade order; the customer then pays it via POST /orders/:orderId/pay. */
+  async upgrade(orgId: string, id: string, actorId: string, input: { priceVersionId: string; quantity: number }) {
+    try {
+      return await createUpgradeOrder(this.db, { orgId, subscriptionId: id, ...input, actorId, sellerStateCode: this.config.SELLER_STATE_CODE });
+    } catch (e) {
+      throw mapError(e);
+    }
   }
 
   // ── Operator ──
@@ -74,6 +97,22 @@ export class SubscriptionsService {
     } catch (e) {
       throw mapError(e);
     }
+  }
+
+  /** Higher-priced published plans of the same product and term. */
+  private async upgradeOptions(priceVersionId: string) {
+    const now = new Date();
+    const current = await this.db.priceVersion.findUniqueOrThrow({ where: { id: priceVersionId }, include: { planVersion: { include: { plan: true } } } });
+    const rows = await this.db.priceVersion.findMany({
+      where: {
+        kind: 'subscription', currency: current.currency, billingInterval: current.billingInterval, amountMinor: { gt: current.amountMinor },
+        effectiveFrom: { lte: now }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }],
+        planVersion: { publishedAt: { not: null }, retiredAt: null, plan: { productId: current.planVersion.plan.productId, product: { status: 'active' } } },
+      },
+      include: { planVersion: { include: { plan: true } } },
+      orderBy: { amountMinor: 'asc' },
+    });
+    return rows.map((p) => ({ priceVersionId: p.id, planName: p.planVersion.plan.name, amountMinor: minorFromDb(p.amountMinor), billingInterval: p.billingInterval }));
   }
 
   private async view(s: Awaited<ReturnType<PrismaClient['subscription']['findUniqueOrThrow']>> & { org: { id: string; name: string } }, withOptions: boolean) {
@@ -118,12 +157,13 @@ export class SubscriptionsService {
       renewal,
       lastLifecycleError: withOptions ? undefined : s.lastLifecycleError,
       downgradeOptions: withOptions && changeable ? await downgradeOptions(this.db, s) : [],
+      upgradeOptions: withOptions && changeable && !s.scheduledChange && !s.pendingAction ? await this.upgradeOptions(s.priceVersionId) : [],
     };
   }
 }
 
 function mapError(e: unknown) {
-  if (!(e instanceof SubscriptionError)) return e;
+  if (!(e instanceof SubscriptionError) && !(e instanceof UpgradeError)) return e;
   if (e.code === 'not_found') return new NotFoundException();
   if (e.code === 'conflict') return new ConflictException({ error: e.code, message: e.message });
   return new BadRequestException({ error: e.code, message: e.message });

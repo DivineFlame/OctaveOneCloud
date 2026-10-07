@@ -77,7 +77,7 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Customer-paid renewals: renewal orders, reminders, past due → grace → suspension → lapse, pay-to-restore | ✅ (`docs/subscriptions.md#renewals-customer-paid`) |
 | Automatic renewal collection via mandates | ⬜ (needs Cashfree Subscriptions) |
 | Scheduled downgrades, cancel at period end | ✅ |
-| Upgrades (prorated quote + payment) | ⬜ |
+| Upgrades (prorated charge + payment, applied via adapter) | ✅ |
 | Agent approval policies | ✅ library (`approvals.ts`); ⬜ API/UI |
 | Agent runtime gateway, tool/connector scopes, budgets | ⬜ |
 | Connector grants (encrypted OAuth tokens) | 🟡 cipher + schema; ⬜ OAuth flows |

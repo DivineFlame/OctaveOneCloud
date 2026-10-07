@@ -14,6 +14,34 @@ export default function Subscriptions({ params }: { params: Promise<{ orgId: str
   const [busy, setBusy] = useState<string | null>(null);
   const router = useRouter();
 
+  const [upgrade, setUpgrade] = useState<{ subId: string; priceVersionId: string; planName: string; proratedMinor: number; periodEnd: string } | null>(null);
+
+  async function previewUpgrade(subId: string, priceVersionId: string, quantity: number) {
+    setError(null);
+    try {
+      const p = await api<{ planName: string; proratedMinor: number; periodEnd: string }>(`/orgs/${orgId}/subscriptions/${subId}/upgrade/preview`, { method: 'POST', body: { priceVersionId, quantity } });
+      setUpgrade({ subId, priceVersionId, ...p });
+    } catch (e) {
+      setError(describeError(e));
+    }
+  }
+
+  async function confirmUpgrade(e: React.FormEvent<HTMLFormElement>, quantity: number) {
+    e.preventDefault();
+    if (!upgrade) return;
+    const phone = String(new FormData(e.currentTarget).get('phone') ?? '').replace(/[\s-]/g, '');
+    setBusy(upgrade.subId);
+    setError(null);
+    try {
+      const o = await api<{ orderId: string }>(`/orgs/${orgId}/subscriptions/${upgrade.subId}/upgrade`, { method: 'POST', body: { priceVersionId: upgrade.priceVersionId, quantity } });
+      await api(`/orgs/${orgId}/orders/${o.orderId}/pay`, { method: 'POST', body: { phone } });
+      router.push(`/dashboard/orders/${o.orderId}?org=${orgId}`);
+    } catch (err) {
+      setError(describeError(err));
+      setBusy(null);
+    }
+  }
+
   async function payRenewal(e: React.FormEvent<HTMLFormElement>, orderId: string, subId: string) {
     e.preventDefault();
     const phone = String(new FormData(e.currentTarget).get('phone') ?? '').replace(/[\s-]/g, '');
@@ -48,7 +76,7 @@ export default function Subscriptions({ params }: { params: Promise<{ orgId: str
     <>
       <p><Link href={`/dashboard/orgs/${orgId}`}>← Organisation</Link></p>
       <h1>Subscriptions</h1>
-      <p className="muted">Cancelling stops renewal — you keep access until the end of the period you paid for. Moving to a cheaper plan takes effect at renewal. For upgrades, buy the higher plan from <Link href="/pricing">Pricing</Link> or contact support for a prorated quote.</p>
+      <p className="muted">Cancelling stops renewal — you keep access until the end of the period you paid for. Moving to a cheaper plan takes effect at renewal. Upgrades apply immediately; you pay only the difference for the rest of the current period.</p>
       {error && <p role="alert" className="error">{error}</p>}
       {subs === null && !error && <p aria-busy="true">Loading…</p>}
       {subs?.length === 0 && <p className="muted">No subscriptions yet.</p>}
@@ -69,6 +97,16 @@ export default function Subscriptions({ params }: { params: Promise<{ orgId: str
               </p>
             )}
             {s.status === 'past_due' && <p><strong>Renewal payment is overdue.</strong> Access continues until {day(s.renewal?.graceEndsAt ?? null)}; please pay to avoid suspension.</p>}
+            {upgrade?.subId === s.id && (
+              <div className="notice info" role="status">
+                <p style={{ margin: 0 }}>Upgrade to <strong>{upgrade.planName}</strong> now: <strong>{formatINR(upgrade.proratedMinor)}</strong> plus GST for the rest of this period (until {day(upgrade.periodEnd)}). From the next renewal you pay the new plan price.</p>
+                <form className="row" onSubmit={(e) => confirmUpgrade(e, s.quantity)}>
+                  <label>Mobile number for payment<input name="phone" type="tel" inputMode="tel" required pattern="\+?[0-9 \-]{10,18}" autoComplete="tel" /></label>
+                  <button type="submit" className="btn" disabled={busy === s.id}>Continue to payment</button>
+                  <button type="button" className="btn secondary" onClick={() => setUpgrade(null)}>Cancel</button>
+                </form>
+              </div>
+            )}
             {s.renewal && (
               <div className="notice" role="status">
                 <p style={{ margin: 0 }}>
@@ -96,6 +134,16 @@ export default function Subscriptions({ params }: { params: Promise<{ orgId: str
               )}
               {s.cancelAtPeriodEnd && s.status !== 'cancelled' && (
                 <button type="button" className="btn" disabled={busy === s.id} onClick={() => act(s.id, 'keep')}>Keep subscription</button>
+              )}
+              {(s.upgradeOptions?.length ?? 0) > 0 && upgrade?.subId !== s.id && (
+                <form className="row" onSubmit={(e) => { e.preventDefault(); void previewUpgrade(s.id, String(new FormData(e.currentTarget).get('up')), s.quantity); }}>
+                  <label>Upgrade now to
+                    <select name="up" required>
+                      {s.upgradeOptions!.map((o) => <option key={o.priceVersionId} value={o.priceVersionId}>{o.planName} — {formatINR(o.amountMinor)}/{formatInterval(o.billingInterval)}</option>)}
+                    </select>
+                  </label>
+                  <button type="submit" className="btn secondary" disabled={busy === s.id}>See price</button>
+                </form>
               )}
               {s.downgradeOptions.length > 0 && !s.scheduledChange && (
                 <form className="row" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get('price'); void act(s.id, 'downgrade', { priceVersionId: v, quantity: s.quantity }); }}>

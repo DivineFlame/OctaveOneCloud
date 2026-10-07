@@ -19,6 +19,7 @@ export interface SubscriptionView {
   renewal: { dueAt: string; graceEndsAt: string | null; orderId: string | null; totalMinor: number | null; problem: string | null } | null;
   lastLifecycleError?: string | null;
   downgradeOptions: { priceVersionId: string; planName: string; amountMinor: number; billingInterval: string }[];
+  upgradeOptions?: { priceVersionId: string; planName: string; amountMinor: number; billingInterval: string }[];
 }
 
 export const SUB_STATUS: Record<string, { label: string; tone: 'neutral' | 'progress' | 'good' | 'warn' }> = {

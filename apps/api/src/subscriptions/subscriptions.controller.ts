@@ -6,6 +6,7 @@ import { AuthContext, CurrentAuth, OperatorOnly } from '../auth/decorators';
 import { OrgGuard, RequireOrgPermission } from '../orgs/org.guard';
 import { SubscriptionsService } from './subscriptions.service';
 
+/** Target plan price and quantity (used for downgrades and upgrades). */
 const Downgrade = z.object({ priceVersionId: z.uuid(), quantity: z.number().int().min(1).max(100_000).default(1) }).strict();
 const Reason = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
 
@@ -39,6 +40,19 @@ export class SubscriptionsController {
   @Post(':id/downgrade')
   downgrade(@Param('orgId', ParseUUIDPipe) orgId: string, @Param('id', ParseUUIDPipe) id: string, @CurrentAuth() a: AuthContext, @Body(new ZodPipe(Downgrade)) body: z.infer<typeof Downgrade>) {
     return this.subs.downgrade(orgId, id, a.user.id, body);
+  }
+
+  @RequireOrgPermission('billing.manage')
+  @HttpCode(200)
+  @Post(':id/upgrade/preview')
+  upgradePreview(@Param('orgId', ParseUUIDPipe) orgId: string, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Downgrade)) body: z.infer<typeof Downgrade>) {
+    return this.subs.upgradePreview(orgId, id, body);
+  }
+
+  @RequireOrgPermission('billing.manage')
+  @Post(':id/upgrade')
+  upgrade(@Param('orgId', ParseUUIDPipe) orgId: string, @Param('id', ParseUUIDPipe) id: string, @CurrentAuth() a: AuthContext, @Body(new ZodPipe(Downgrade)) body: z.infer<typeof Downgrade>) {
+    return this.subs.upgrade(orgId, id, a.user.id, body);
   }
 
   @RequireOrgPermission('billing.manage')

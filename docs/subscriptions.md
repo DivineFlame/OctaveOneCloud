@@ -10,10 +10,11 @@ data, collects money or issues refunds.
 | Keep subscription | same | immediately (before period end) | undoes the cancellation |
 | Move to a cheaper plan | same | end of the paid period | stored as `scheduledChange`; at period end the worker calls `changePlan` with the new entitlements and swaps the grants. Only same product, same billing term, lower total; bundles must keep the same apps. |
 | Withdraw scheduled change | same | immediately | |
-| Upgrade | — | — | not self-service yet: needs a prorated quote and confirmed payment |
+| Upgrade (higher plan or more units, same product and term) | same | immediately after payment | prorated charge `(new − old) × remaining ÷ period` + GST (min ₹1) as an `upgrade` order, paid by hosted checkout; on confirmed payment the lifecycle worker calls `changePlan` and swaps the grants; an unpaid renewal order is re-issued at the new price; unpaid upgrade orders expire after 24 h; a payment that arrives after the subscription changed is flagged for review |
 | Suspend / resume | operator (support or admin), reason required | next worker sweep (≤ 1 min) | `suspendAccess` / `resumeAccess`; entitlements revoked / restored (only the current plan's grants) |
 
 API: `GET /v1/orgs/:orgId/subscriptions`, `POST …/:id/cancel`, `…/:id/keep`, `…/:id/downgrade {priceVersionId, quantity}`,
+`…/:id/upgrade/preview` and `…/:id/upgrade {priceVersionId, quantity}` (then `POST /v1/orgs/:orgId/orders/:orderId/pay`),
 `…/:id/scheduled-change/withdraw`; operators `GET /v1/admin/subscriptions?status=|attention=true`,
 `POST /v1/admin/subscriptions/:id/suspend|resume {reason}`. Every action is audited.
 

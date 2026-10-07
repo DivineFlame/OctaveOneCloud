@@ -58,7 +58,7 @@ function Order({ orderId }: { orderId: string }) {
   return (
     <>
       <Script src="https://sdk.cashfree.com/js/v3/cashfree.js" strategy="afterInteractive" onLoad={() => setSdkReady(true)} />
-      <h1>{order.kind === 'renewal' ? 'Renewal payment' : 'Order'}</h1>
+      <h1>{order.kind === 'renewal' ? 'Renewal payment' : order.kind === 'upgrade' ? 'Upgrade payment' : 'Order'}</h1>
       <p className="muted">Order ID: <code>{order.id}</code></p>
       <p aria-live="polite"><span className={`badge ${status.tone}`}>{status.label}</span></p>
       <p>Total: <strong>{formatINR(order.totalMinor)}</strong></p>

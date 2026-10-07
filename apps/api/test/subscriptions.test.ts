@@ -103,4 +103,26 @@ describe('subscriptions API', () => {
     expect(new Date(after.body[0].currentPeriodStart).getTime()).toBe(new Date(renewal.dueAt).getTime());
     await owner.agent.post(`/v1/orgs/${orgId}/orders/${renewal.orderId}/pay`).set('Origin', ORIGIN).send({ phone: '9876543210' }).expect(409);
   });
+
+  it('offers upgrades, previews the prorated price and creates a payable upgrade order', async () => {
+    const owner = await signUp(app, 'upgrade@example.com');
+    const orgId = await createOrg(owner.agent);
+    const { sub } = await activeSubscription(orgId);
+    const base = await db.priceVersion.findUniqueOrThrow({ where: { id: sub.priceVersionId }, include: { planVersion: { include: { plan: true } } } });
+    const proPlan = await db.plan.create({ data: { productId: base.planVersion.plan.productId, key: `${base.planVersion.plan.key}-pro`, name: 'CRM Pro', tier: 'business' } });
+    const pro = await db.planVersion.create({ data: { planId: proPlan.id, version: 1 } });
+    const proPrice = await db.priceVersion.create({ data: { planVersionId: pro.id, kind: 'subscription', billingInterval: 'P1M', amountMinor: 499900n } });
+    await db.planVersion.update({ where: { id: pro.id }, data: { publishedAt: new Date() } });
+
+    const list = await owner.agent.get(`/v1/orgs/${orgId}/subscriptions`).expect(200);
+    expect(list.body[0].upgradeOptions).toEqual([{ priceVersionId: proPrice.id, planName: 'CRM Pro', amountMinor: 499900, billingInterval: 'P1M' }]);
+    const preview = await owner.agent.post(`/v1/orgs/${orgId}/subscriptions/${sub.id}/upgrade/preview`).set('Origin', ORIGIN).send({ priceVersionId: proPrice.id }).expect(200);
+    expect(preview.body.differencePerPeriodMinor).toBe(300000);
+    expect(preview.body.proratedMinor).toBeGreaterThan(290000); // period just started
+    const bad = await owner.agent.post(`/v1/orgs/${orgId}/subscriptions/${sub.id}/upgrade/preview`).set('Origin', ORIGIN).send({ priceVersionId: sub.priceVersionId }).expect(400);
+    expect(bad.body.error).toBe('not_an_upgrade');
+    const order = await owner.agent.post(`/v1/orgs/${orgId}/subscriptions/${sub.id}/upgrade`).set('Origin', ORIGIN).send({ priceVersionId: proPrice.id }).expect(201);
+    const o = await owner.agent.get(`/v1/orgs/${orgId}/orders/${order.body.orderId}`).expect(200);
+    expect(o.body).toMatchObject({ kind: 'upgrade', status: 'awaiting_payment', totalMinor: order.body.totalMinor });
+  });
 });

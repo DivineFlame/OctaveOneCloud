@@ -141,7 +141,7 @@ describe('renewals', () => {
     await pay(second); // paid early: the period moves on, the downgrade still applies at the old boundary
     expect(await processSubscriptionLifecycle(db, adapters, at(-1))).toEqual([]);
     const r = await processSubscriptionLifecycle(db, adapters, at(0));
-    expect(r[0]).toMatchObject({ action: 'downgrade', result: 'done' });
+    expect(r[0]).toMatchObject({ action: 'plan_change', result: 'done' });
     expect(await subOf(sub.id)).toMatchObject({ planVersionId: lite.id, priceVersionId: litePrice.id, scheduledChangeDueAt: null, currentPeriodEnd: new Date('2026-12-01T00:00:00Z') });
     expect(adapter.tenants.get(org.id)?.entitlements).toEqual([{ featureKey: 'crm.seats', limit: 3 }]);
   });

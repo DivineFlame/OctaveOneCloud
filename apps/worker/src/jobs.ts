@@ -1,5 +1,5 @@
 import { PrismaClient } from '@ooc/db';
-import { AdapterRegistry, CashfreeClient, advanceOverdueRenewals, creditConfirmedRefunds, reconcileRefunds, claimRenewalReminders, expireStaleReservations, prepareRenewals, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
+import { AdapterRegistry, CashfreeClient, advanceOverdueRenewals, expireStaleUpgradeOrders, creditConfirmedRefunds, reconcileRefunds, claimRenewalReminders, expireStaleReservations, prepareRenewals, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
 import { RenewalSettings, SellerProfile } from '@ooc/shared';
 import { Mailer } from './mail';
 import { log } from './log';
@@ -101,6 +101,7 @@ export async function sweep(deps: Deps, enqueue: { inbox: (id: string) => Promis
   const renewals = await prepareRenewals(deps.db, deps.renewal, deps.sellerStateCode);
   for (const b of renewals.blocked) log('warn', 'renewal order blocked', b);
   const overdue = await advanceOverdueRenewals(deps.db, deps.renewal);
+  const expiredUpgrades = await expireStaleUpgradeOrders(deps.db);
   let reminders = 0;
   for (const m of await claimRenewalReminders(deps.db, deps.appUrl)) {
     if (await deps.mailer.send(m)) reminders++;
@@ -112,7 +113,7 @@ export async function sweep(deps: Deps, enqueue: { inbox: (id: string) => Promis
     if (l.result === 'done') log('info', 'subscription lifecycle', { ...l });
     else if (l.result === 'retry_later') log('warn', 'subscription lifecycle deferred', { ...l });
   }
-  const renewalActivity = refunds.length + credits.length + renewals.created.length + overdue.pastDue + overdue.suspensionsRequested + overdue.lapsed + reminders;
+  const renewalActivity = expiredUpgrades + refunds.length + credits.length + renewals.created.length + overdue.pastDue + overdue.suspensionsRequested + overdue.lapsed + reminders;
   if (inbox.length || jobs.length || pending.length || expired || invoices || lifecycle.length || renewalActivity) {
     log('info', 'sweep', {
       inbox: inbox.length, jobs: jobs.length, reconcile: pending.length, expiredReservations: expired, invoices, lifecycle: lifecycle.length,
