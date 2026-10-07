@@ -26,7 +26,7 @@ describe('catalogue administration', () => {
     await fresh.post('/v1/auth/login').set('Origin', ORIGIN).send({ email: 'op@example.com', password: 'correct-horse-battery' }).expect(200);
     const denied = await fresh.get('/v1/admin/catalogue/products').expect(403);
     expect(denied.body.error).toBe('mfa_required');
-    await fresh.post('/v1/auth/mfa/verify').set('Origin', ORIGIN).send({ code: totpCode(op.secret) }).expect(200);
+    await fresh.post('/v1/auth/mfa/verify').set('Origin', ORIGIN).send({ code: totpCode(op.secret, Date.now() + 30_000) }).expect(200);
     await fresh.get('/v1/admin/catalogue/products').expect(200);
   });
 

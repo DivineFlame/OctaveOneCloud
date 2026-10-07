@@ -97,12 +97,18 @@ export function totpCode(secretBase32: string, timeMs = Date.now(), stepSeconds 
 }
 
 export function verifyTotp(secretBase32: string, code: string, timeMs = Date.now(), window = 1): boolean {
-  if (!/^\d{6}$/.test(code)) return false;
+  return totpMatchStep(secretBase32, code, timeMs, window) !== null;
+}
+
+/** Time step (30 s counter) the code matched, or null. Callers store it to reject replays of a used code. */
+export function totpMatchStep(secretBase32: string, code: string, timeMs = Date.now(), window = 1): number | null {
+  if (!/^\d{6}$/.test(code)) return null;
   for (let w = -window; w <= window; w++) {
-    const expected = Buffer.from(totpCode(secretBase32, timeMs + w * 30_000));
-    if (timingSafeEqual(expected, Buffer.from(code))) return true;
+    const t = timeMs + w * 30_000;
+    const expected = Buffer.from(totpCode(secretBase32, t));
+    if (timingSafeEqual(expected, Buffer.from(code))) return Math.floor(t / 30_000);
   }
-  return false;
+  return null;
 }
 
 /** Canonical JSON (sorted keys) hashed with SHA-256; used to bind approvals to exact action inputs. */

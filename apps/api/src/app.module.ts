@@ -26,7 +26,7 @@ import { RefundsModule } from './refunds/refunds.module';
     CommonModule,
     QueueModule,
     ProvidersModule,
-    ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 300 }], skipIf: () => process.env.OOC_DISABLE_THROTTLE === 'true' }),
+    ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 300 }], skipIf: () => process.env.OOC_DISABLE_THROTTLE === 'true' && process.env.NODE_ENV !== 'production' }),
     AuthModule,
     OrgsModule,
     CatalogueModule,

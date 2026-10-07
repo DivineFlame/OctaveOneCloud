@@ -33,6 +33,8 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Quotes: server-side pricing, frozen snapshot, expiry, mixed-term grouping | ✅ | |
 | Admin console (integrations, catalogue readiness) | ✅ | Minimal UI |
 | Structured redacted logs, health/readiness | ✅ | |
+| Security hardening: CSP/HSTS, per-account login lockout, TOTP replay protection, MFA failure limit, clean dependency audit | ✅ | `docs/security.md` |
+| Load-test script + indicative baseline | ✅ | `scripts/loadtest.mjs`; VPS run still required (`docs/evidence/`) |
 | VPS bootstrap (Ubuntu 24.04 hardening + Dokploy install) | 🟡 | `deploy/vps/setup-ubuntu.sh`; shellcheck-clean, not yet run on a real VPS |
 | PostgreSQL in stack: tuning, nightly verified dumps, restore/drill tooling | ✅ | `db-backup` service + `deploy/postgres/restore.sh`; backup, drill and full replace tested on the Compose stack |
 | OIDC login with existing identity provider | ⬜ | Config placeholders only |

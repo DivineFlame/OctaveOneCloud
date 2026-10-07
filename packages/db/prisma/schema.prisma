@@ -38,6 +38,11 @@ model User {
   mfaSecretEnc    String?
   mfaKeyId        String?
   mfaEnabledAt    DateTime?
+  // Last TOTP time step accepted; codes for that step or earlier are rejected (no replay).
+  mfaLastStep     Int?
+  // Per-account login protection, independent of client IP.
+  failedLogins    Int           @default(0)
+  loginLockedUntil DateTime?
   disabledAt      DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -54,6 +59,7 @@ model Session {
   // SHA-256 of the opaque cookie token; the raw token is never stored.
   tokenHash   String    @unique
   mfaVerified Boolean   @default(false)
+  mfaFailures Int       @default(0)
   ip          String?
   userAgent   String?
   expiresAt   DateTime

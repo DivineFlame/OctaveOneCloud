@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaClient, User, isUniqueViolation } from '@ooc/db';
-import { AppConfig, CredentialCipher, generateTotpSecret, randomToken, sha256Hex, verifyTotp } from '@ooc/shared';
+import { AppConfig, CredentialCipher, generateTotpSecret, randomToken, sha256Hex, totpMatchStep } from '@ooc/shared';
 import { APP_CONFIG } from '../config/config.module';
 import { PRISMA } from '../common/prisma.module';
 import { CIPHER } from '../common/common.module';
@@ -10,6 +10,10 @@ import { hashPassword, verifyPassword } from './passwords';
 
 const VERIFY_TTL_MS = 24 * 3600_000;
 const RESET_TTL_MS = 3600_000;
+
+const LOGIN_LOCK_THRESHOLD = 10;
+const LOGIN_LOCK_MS = 15 * 60_000;
+const MFA_MAX_FAILURES = 5;
 
 @Injectable()
 export class AuthService {
@@ -60,11 +64,17 @@ export class AuthService {
   async login(input: { email: string; password: string }, meta: { ip: string | null; userAgent?: string }) {
     const email = input.email.trim().toLowerCase();
     const user = await this.db.user.findUnique({ where: { email } });
+    // Always verify (constant work) so timing does not reveal whether the account exists or is locked.
     const ok = await verifyPassword(user?.passwordHash ?? null, input.password);
-    if (!user || !ok || user.disabledAt) {
-      await this.audit.record({ actorType: 'user', action: 'auth.login_failed', metadata: { email }, ip: meta.ip });
+    const now = new Date();
+    const locked = !!user?.loginLockedUntil && user.loginLockedUntil > now;
+    if (!user || !ok || user.disabledAt || locked) {
+      await this.audit.record({ actorType: 'user', action: locked ? 'auth.login_locked' : 'auth.login_failed', metadata: { email }, ip: meta.ip });
+      if (user && !locked && !ok) await this.recordFailedLogin(user.id, user.email, now);
+      // Same response for unknown, wrong password, disabled and locked accounts (no enumeration).
       throw new UnauthorizedException({ error: 'invalid_credentials' });
     }
+    if (user.failedLogins || user.loginLockedUntil) await this.db.user.update({ where: { id: user.id }, data: { failedLogins: 0, loginLockedUntil: null } });
     const token = randomToken();
     const session = await this.db.session.create({
       data: {
@@ -77,6 +87,23 @@ export class AuthService {
     });
     await this.audit.record({ actorId: user.id, actorType: user.operatorRole ? 'operator' : 'user', action: 'auth.login', targetType: 'session', targetId: session.id, ip: meta.ip });
     return { token, session, user, mfaRequired: Boolean(user.mfaEnabledAt) };
+  }
+
+  /** After LOGIN_LOCK_THRESHOLD consecutive failures the account is locked for LOGIN_LOCK_MS, whatever the client IP. */
+  private async recordFailedLogin(userId: string, email: string, now: Date) {
+    const rows = await this.db.$queryRaw<{ failedLogins: number }[]>`
+      UPDATE "User" SET "failedLogins" = "failedLogins" + 1, "updatedAt" = now() WHERE id = ${userId}::uuid RETURNING "failedLogins"`;
+    if ((rows[0]?.failedLogins ?? 0) < LOGIN_LOCK_THRESHOLD) return;
+    const until = new Date(now.getTime() + LOGIN_LOCK_MS);
+    const r = await this.db.user.updateMany({ where: { id: userId, failedLogins: { gte: LOGIN_LOCK_THRESHOLD } }, data: { failedLogins: 0, loginLockedUntil: until } });
+    if (r.count === 1) {
+      await this.audit.record({ actorId: userId, actorType: 'system', action: 'auth.account_locked', targetType: 'user', targetId: userId, metadata: { until: until.toISOString() } });
+      await this.mail.trySend({
+        to: email,
+        subject: 'Sign-in temporarily blocked on your OctaveOneCloud account',
+        text: `There were ${LOGIN_LOCK_THRESHOLD} failed sign-in attempts on your account, so sign-in is blocked for ${LOGIN_LOCK_MS / 60_000} minutes.\nIf this was not you, reset your password: ${this.config.APP_URL}/forgot-password`,
+      });
+    }
   }
 
   async resolveSession(token: string | undefined) {
@@ -102,7 +129,7 @@ export class AuthService {
   async confirmPasswordReset(token: string, password: string, ip: string | null) {
     const record = await this.consumeToken(token, 'password_reset');
     await this.db.$transaction([
-      this.db.user.update({ where: { id: record.userId }, data: { passwordHash: await hashPassword(password), emailVerifiedAt: new Date() } }),
+      this.db.user.update({ where: { id: record.userId }, data: { passwordHash: await hashPassword(password), emailVerifiedAt: new Date(), failedLogins: 0, loginLockedUntil: null } }),
       this.db.session.updateMany({ where: { userId: record.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
     await this.audit.record({ actorId: record.userId, actorType: 'user', action: 'auth.password_reset', ip });
@@ -120,18 +147,31 @@ export class AuthService {
 
   async enableMfa(user: User, sessionId: string, code: string, ip: string | null) {
     if (!user.mfaSecretEnc) throw new BadRequestException({ error: 'mfa_setup_not_started' });
-    if (!verifyTotp(this.cipher.decrypt(user.mfaSecretEnc, `mfa:${user.id}`), code)) throw new ForbiddenException({ error: 'invalid_mfa_code' });
-    await this.db.user.update({ where: { id: user.id }, data: { mfaEnabledAt: new Date() } });
+    const step = totpMatchStep(this.cipher.decrypt(user.mfaSecretEnc, `mfa:${user.id}`), code);
+    if (step === null) throw new ForbiddenException({ error: 'invalid_mfa_code' });
+    await this.db.user.update({ where: { id: user.id }, data: { mfaEnabledAt: new Date(), mfaLastStep: step } });
     await this.db.session.update({ where: { id: sessionId }, data: { mfaVerified: true } });
     await this.audit.record({ actorId: user.id, actorType: 'user', action: 'auth.mfa_enabled', ip });
   }
 
   async verifyMfa(user: User, sessionId: string, code: string, ip: string | null) {
     if (!user.mfaEnabledAt || !user.mfaSecretEnc) throw new BadRequestException({ error: 'mfa_not_enabled' });
-    if (!verifyTotp(this.cipher.decrypt(user.mfaSecretEnc, `mfa:${user.id}`), code)) {
-      await this.audit.record({ actorId: user.id, actorType: 'user', action: 'auth.mfa_failed', ip });
+    const step = totpMatchStep(this.cipher.decrypt(user.mfaSecretEnc, `mfa:${user.id}`), code);
+    // A code is accepted once: steps at or before the last accepted one are replays.
+    const accepted = step !== null && (user.mfaLastStep === null || step > user.mfaLastStep)
+      ? (await this.db.user.updateMany({ where: { id: user.id, OR: [{ mfaLastStep: null }, { mfaLastStep: { lt: step } }] }, data: { mfaLastStep: step } })).count === 1
+      : false;
+    if (!accepted) {
+      await this.audit.record({ actorId: user.id, actorType: 'user', action: step === null ? 'auth.mfa_failed' : 'auth.mfa_replay', ip });
+      const s = await this.db.session.update({ where: { id: sessionId }, data: { mfaFailures: { increment: 1 } } });
+      if (s.mfaFailures >= MFA_MAX_FAILURES) {
+        // Too many wrong codes on this session: end it (the password must be entered again).
+        await this.db.session.update({ where: { id: sessionId }, data: { revokedAt: new Date() } });
+        await this.audit.record({ actorId: user.id, actorType: 'system', action: 'auth.session_revoked_mfa_failures', targetType: 'session', targetId: sessionId, ip });
+        throw new ForbiddenException({ error: 'mfa_attempts_exceeded' });
+      }
       throw new ForbiddenException({ error: 'invalid_mfa_code' });
     }
-    await this.db.session.update({ where: { id: sessionId }, data: { mfaVerified: true } });
+    await this.db.session.update({ where: { id: sessionId }, data: { mfaVerified: true, mfaFailures: 0 } });
   }
 }

@@ -118,6 +118,8 @@ export async function launchReadiness(db: PrismaClient, c: AppConfig, now = new 
 
   for (const [id, title] of MANUAL_GATES) add(id, 'launch_gate', title, 'manual', 'Record evidence in docs/evidence/ and tick it in docs/PROGRESS.md');
 
+  const order: ReadinessCheck['area'][] = ['security', 'configuration', 'payments', 'tax', 'catalogue', 'operations', 'launch_gate'];
+  checks.sort((a, b) => order.indexOf(a.area) - order.indexOf(b.area)); // stable: keeps order within an area
   const summary = { pass: 0, fail: 0, warn: 0, manual: 0 } as Record<CheckStatus, number>;
   for (const ch of checks) summary[ch.status]++;
   return { generatedAt: now.toISOString(), appEnv: env, summary, automatedChecksPass: summary.fail === 0, checks };
