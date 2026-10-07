@@ -1,8 +1,9 @@
 import { Job, Queue, Worker } from 'bullmq';
 import { createPrismaClient } from '@ooc/db';
 import { CashfreeClient } from '@ooc/integrations';
-import { cashfreeBaseUrl, loadConfig, redisOptionsFromUrl, sellerProfile } from '@ooc/shared';
+import { cashfreeBaseUrl, loadConfig, redisOptionsFromUrl, renewalSettings, sellerProfile } from '@ooc/shared';
 import { buildAdapterRegistry } from './adapters';
+import { createMailer } from './mail';
 import { Deps, handleInbox, handleProvisioning, handleReconcile, sweep } from './jobs';
 import { log } from './log';
 
@@ -24,6 +25,10 @@ async function main() {
     adapters: buildAdapterRegistry(process.env),
     cashfree: new CashfreeClient(cashfreeBaseUrl(config.CASHFREE_ENV), { clientId: config.CASHFREE_CLIENT_ID, clientSecret: config.CASHFREE_CLIENT_SECRET, apiVersion: config.CASHFREE_API_VERSION }),
     seller: sellerProfile(config),
+    renewal: renewalSettings(config),
+    sellerStateCode: config.SELLER_STATE_CODE,
+    appUrl: config.APP_URL,
+    mailer: createMailer(config),
     enqueueProvisioning: async (id) => {
       await queues.provisioning.add('run', { jobId: id }, { jobId: `prov-${id}-${Date.now()}` });
     },

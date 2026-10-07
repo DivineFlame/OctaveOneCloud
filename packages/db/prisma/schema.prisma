@@ -407,6 +407,9 @@ model Order {
   totalMinor     BigInt
   // Client-supplied idempotency key for checkout creation (scoped per org).
   idempotencyKey String
+  // purchase | renewal. Renewal orders extend subscriptionId instead of provisioning anything.
+  kind           String       @default("purchase")
+  subscriptionId String?      @db.Uuid
   paidAt         DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -418,6 +421,7 @@ model Order {
 
   @@unique([orgId, idempotencyKey])
   @@index([orgId, status])
+  @@index([subscriptionId])
 }
 
 model OrderItem {
@@ -670,6 +674,10 @@ model Subscription {
   lifecycleVersion   Int                @default(0)
   pendingAction      String? // suspend | resume (operator requests)
   pendingActionReason String?
+  // Why access is suspended (e.g. non_payment); paying a renewal resumes only non_payment suspensions.
+  suspensionReason   String?
+  // When a scheduled downgrade becomes due (the period boundary it was scheduled for).
+  scheduledChangeDueAt DateTime?
   lastLifecycleError String?
   nextLifecycleAttemptAt DateTime?
   suspendedAt        DateTime?
@@ -689,9 +697,14 @@ model RenewalRun {
   id             String       @id @default(uuid()) @db.Uuid
   subscriptionId String       @db.Uuid
   periodStart    DateTime
-  status         String // pending | charged | failed | skipped
+  status         String // pending | paid | lapsed | cancelled
   paymentRef     String?
+  // Customer-paid renewal order for this period (null until created, or after it was invalidated).
+  orderId        String?      @unique @db.Uuid
+  remindersSent  String[]     @default([])
+  lastError      String?
   createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @default(now()) @updatedAt
   subscription   Subscription @relation(fields: [subscriptionId], references: [id])
 
   @@unique([subscriptionId, periodStart])

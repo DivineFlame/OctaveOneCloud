@@ -25,5 +25,35 @@ API: `GET /v1/orgs/:orgId/subscriptions`, `POST …/:id/cancel`, `…/:id/keep`,
 - If any app does not confirm (failed / unknown / no evidence), the subscription is left unchanged,
   `lastLifecycleError` is set, and the worker retries after 5 minutes. Operators see these under
   **Admin → Subscriptions → Needs attention**.
-- Period ends are evaluated by the worker sweep; renewals, dunning and grace periods are a later milestone, so an
-  un-cancelled subscription currently stays `active` after its period end until renewal is built.
+- Scheduled downgrades fall due at `scheduledChangeDueAt` (the period boundary they were scheduled for), so they still
+  apply on time when the renewal was paid early.
+
+## Renewals (customer-paid)
+
+Cashfree Subscriptions mandates are not enabled yet, so renewals are orders the customer pays through the normal
+hosted checkout. Nothing is debited automatically.
+
+| When (relative to period end T) | What the worker does |
+|---|---|
+| T − `RENEWAL_NOTICE_DAYS` (7) | Creates one `RenewalRun` (unique per subscription + period) and a renewal order and quote at the subscription's price version — or at the scheduled downgrade's price. Emails the org's billing email, owners and billing members. |
+| T − 1 day | Reminder "due tomorrow" |
+| T, unpaid | Status `past_due`, `graceEndsAt = T + RENEWAL_GRACE_DAYS`; access continues; "overdue" reminder |
+| grace end − 2 days | "Access will be suspended" reminder |
+| grace end, unpaid | Suspension requested with reason `non_payment`; the lifecycle worker switches access off (data kept) |
+| T + `RENEWAL_LAPSE_DAYS` (30), unpaid | Renewal order expires; the subscription ends through the normal cancellation path |
+
+Paying (dashboard → Subscriptions → **Pay renewal**) extends the subscription **from T** (continuous service),
+issues the tax invoice, and — if access was suspended for non-payment — resumes it. A suspension for any other
+reason (operator decision) is not lifted by paying. Each reminder stage is sent at most once; after downtime only
+the latest applicable reminder goes out.
+
+Changing plan or cancelling while a renewal order is unpaid cancels that order (a new one is created at the new
+terms; a cancelled subscription gets none). A payment that arrives for a cancelled/expired renewal order, or after
+the subscription ended, is never silently kept or applied: the order is set to `needs_attention` for refund or a
+manual extension.
+
+Existing customers keep their plan's price version on renewal ("grandfathered") until they change plan.
+Operator-suspended subscriptions get no renewal order while suspended.
+
+API: `POST /v1/orgs/:orgId/orders/:orderId/pay {phone}` opens (or re-uses) a Cashfree checkout session for any
+order awaiting payment; the subscription list includes `renewal { dueAt, graceEndsAt, orderId, totalMinor, problem }`.

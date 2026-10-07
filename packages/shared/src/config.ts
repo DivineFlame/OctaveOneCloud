@@ -5,6 +5,10 @@ const bool = z
   .optional()
   .transform((v) => v === 'true' || v === '1');
 
+/** Whole days with bounds; blank → default. */
+const days = (fallback: number, min: number, max: number) =>
+  z.preprocess((v) => (v === '' || v === undefined ? fallback : v), z.coerce.number().int().min(min).max(max));
+
 /** Blank → default, so an empty line in a Dokploy env block does not fail startup. */
 const docPrefix = (fallback: string) =>
   z.preprocess((v) => (v === '' || v === undefined ? fallback : v), z.string().regex(/^[A-Z0-9]{1,4}$/, 'must be 1-4 uppercase letters/digits'));
@@ -67,6 +71,11 @@ export const baseEnvSchema = z.object({
   MAIL_FROM: optionalString,
   /** Where new support tickets and customer replies are announced (optional). */
   SUPPORT_NOTIFY_EMAIL: optionalString,
+  // Customer-paid renewals: order + reminder N days before period end; access continues for the grace period
+  // after it; the subscription ends if still unpaid after the lapse period.
+  RENEWAL_NOTICE_DAYS: days(7, 1, 60),
+  RENEWAL_GRACE_DAYS: days(7, 0, 30),
+  RENEWAL_LAPSE_DAYS: days(30, 1, 180),
 
   SELLER_GSTIN: optionalString,
   SELLER_STATE_CODE: optionalString,
@@ -172,6 +181,16 @@ export interface SellerProfile {
 }
 
 /** Seller identity for GST documents, or null while it is not configured. */
+export interface RenewalSettings {
+  noticeDays: number;
+  graceDays: number;
+  lapseDays: number;
+}
+
+export function renewalSettings(c: AppConfig): RenewalSettings {
+  return { noticeDays: c.RENEWAL_NOTICE_DAYS, graceDays: c.RENEWAL_GRACE_DAYS, lapseDays: Math.max(c.RENEWAL_LAPSE_DAYS, c.RENEWAL_GRACE_DAYS + 1) };
+}
+
 export function sellerProfile(c: AppConfig): SellerProfile | null {
   if (!c.SELLER_LEGAL_NAME || !c.SELLER_ADDRESS || !c.SELLER_STATE_CODE) return null;
   return { legalName: c.SELLER_LEGAL_NAME, address: c.SELLER_ADDRESS, gstin: c.SELLER_GSTIN ?? null, stateCode: c.SELLER_STATE_CODE, invoicePrefix: c.INVOICE_PREFIX, creditNotePrefix: c.CREDIT_NOTE_PREFIX };

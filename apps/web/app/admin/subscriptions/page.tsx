@@ -56,6 +56,9 @@ export default function AdminSubscriptions() {
                     {s.pendingAction && <div>Pending: {s.pendingAction}</div>}
                     {s.cancelAtPeriodEnd && <div>Cancels at period end</div>}
                     {s.scheduledChange && <div>Changes to {s.scheduledChange.planName}</div>}
+                    {s.renewal && <div>Renewal due {day(s.renewal.dueAt)}{s.renewal.orderId ? ' (awaiting payment)' : ''}</div>}
+                    {s.renewal?.problem && <div className="error">Renewal: {s.renewal.problem}</div>}
+                    {s.suspensionReason && <div>Suspended: {s.suspensionReason}</div>}
                     {s.lastLifecycleError && <div className="error">{s.lastLifecycleError}</div>}
                   </td>
                   <td>

@@ -15,6 +15,8 @@ export interface SubscriptionView {
   suspendedAt: string | null;
   cancelledAt: string | null;
   pendingAction: string | null;
+  suspensionReason: string | null;
+  renewal: { dueAt: string; graceEndsAt: string | null; orderId: string | null; totalMinor: number | null; problem: string | null } | null;
   lastLifecycleError?: string | null;
   downgradeOptions: { priceVersionId: string; planName: string; amountMinor: number; billingInterval: string }[];
 }
@@ -23,7 +25,7 @@ export const SUB_STATUS: Record<string, { label: string; tone: 'neutral' | 'prog
   pending_activation: { label: 'Being set up', tone: 'progress' },
   trialing: { label: 'Trial', tone: 'good' },
   active: { label: 'Active', tone: 'good' },
-  past_due: { label: 'Payment due', tone: 'warn' },
+  past_due: { label: 'Payment overdue', tone: 'warn' },
   grace: { label: 'Grace period', tone: 'warn' },
   suspended: { label: 'Suspended', tone: 'warn' },
   cancel_scheduled: { label: 'Ends at period end', tone: 'neutral' },

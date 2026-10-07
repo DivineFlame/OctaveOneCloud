@@ -1,6 +1,7 @@
 import { PrismaClient } from '@ooc/db';
-import { AdapterRegistry, CashfreeClient, expireStaleReservations, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
-import { SellerProfile } from '@ooc/shared';
+import { AdapterRegistry, CashfreeClient, advanceOverdueRenewals, claimRenewalReminders, expireStaleReservations, prepareRenewals, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
+import { RenewalSettings, SellerProfile } from '@ooc/shared';
+import { Mailer } from './mail';
 import { log } from './log';
 
 export interface Deps {
@@ -10,6 +11,10 @@ export interface Deps {
   enqueueProvisioning: (jobId: string) => Promise<void>;
   /** null when the seller's legal details are not configured: invoices wait (the sweeper issues them later). */
   seller: SellerProfile | null;
+  renewal: RenewalSettings;
+  sellerStateCode?: string;
+  appUrl: string;
+  mailer: Mailer;
 }
 
 let warnedNoSeller = false;
@@ -85,13 +90,27 @@ export async function sweep(deps: Deps, enqueue: { inbox: (id: string) => Promis
   if (deps.seller) {
     for (const o of await ordersAwaitingInvoice(deps.db, 50)) if ((await issueInvoice(deps, o.id))?.result === 'issued') invoices++;
   }
+  // Customer-paid renewals: create renewal orders, move unpaid ones through past due → suspension → lapse,
+  // and send reminders (each stage at most once).
+  const renewals = await prepareRenewals(deps.db, deps.renewal, deps.sellerStateCode);
+  for (const b of renewals.blocked) log('warn', 'renewal order blocked', b);
+  const overdue = await advanceOverdueRenewals(deps.db, deps.renewal);
+  let reminders = 0;
+  for (const m of await claimRenewalReminders(deps.db, deps.appUrl)) {
+    if (await deps.mailer.send(m)) reminders++;
+  }
+
   // Cancellations at period end, scheduled downgrades and operator suspend/resume requests.
   const lifecycle = await processSubscriptionLifecycle(deps.db, deps.adapters);
   for (const l of lifecycle) {
     if (l.result === 'done') log('info', 'subscription lifecycle', { ...l });
     else if (l.result === 'retry_later') log('warn', 'subscription lifecycle deferred', { ...l });
   }
-  if (inbox.length || jobs.length || pending.length || expired || invoices || lifecycle.length) {
-    log('info', 'sweep', { inbox: inbox.length, jobs: jobs.length, reconcile: pending.length, expiredReservations: expired, invoices, lifecycle: lifecycle.length });
+  const renewalActivity = renewals.created.length + overdue.pastDue + overdue.suspensionsRequested + overdue.lapsed + reminders;
+  if (inbox.length || jobs.length || pending.length || expired || invoices || lifecycle.length || renewalActivity) {
+    log('info', 'sweep', {
+      inbox: inbox.length, jobs: jobs.length, reconcile: pending.length, expiredReservations: expired, invoices, lifecycle: lifecycle.length,
+      renewalOrders: renewals.created.length, ...overdue, reminders,
+    });
   }
 }

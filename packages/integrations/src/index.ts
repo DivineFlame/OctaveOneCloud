@@ -8,3 +8,4 @@ export * from './usage';
 export * from './approvals';
 export * from './invoices';
 export * from './subscriptions';
+export * from './renewals';

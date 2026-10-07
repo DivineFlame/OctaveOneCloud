@@ -18,6 +18,7 @@ const CreateQuote = z.object({
     .min(1)
     .max(50),
 }).strict();
+const PayOrder = z.object({ phone: z.string().regex(/^\+?[0-9]{10,15}$/) }).strict();
 const Checkout = z.object({
   idempotencyKey: z.string().min(8).max(100),
   phone: z.string().regex(/^\+?[0-9]{10,15}$/),
@@ -64,5 +65,12 @@ export class QuotesController {
   @Post('orders/:orderId/reconcile')
   reconcile(@Param('orgId', ParseUUIDPipe) orgId: string, @Param('orderId', ParseUUIDPipe) orderId: string) {
     return this.checkout.requestReconcile(orgId, orderId);
+  }
+
+  @RequireOrgPermission('billing.manage')
+  @HttpCode(200)
+  @Post('orders/:orderId/pay')
+  pay(@Param('orgId', ParseUUIDPipe) orgId: string, @Param('orderId', ParseUUIDPipe) orderId: string, @CurrentAuth() a: AuthContext, @Body(new ZodPipe(PayOrder)) body: z.infer<typeof PayOrder>) {
+    return this.checkout.payOrder(orgId, orderId, { id: a.user.id, email: a.user.email }, body);
   }
 }

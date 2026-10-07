@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api, describeError } from '@/lib/api';
 import { formatINR, formatInterval } from '@/lib/format';
 import { SUB_STATUS, SubscriptionView, day } from '@/lib/subscriptions';
@@ -11,6 +12,21 @@ export default function Subscriptions({ params }: { params: Promise<{ orgId: str
   const [subs, setSubs] = useState<SubscriptionView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const router = useRouter();
+
+  async function payRenewal(e: React.FormEvent<HTMLFormElement>, orderId: string, subId: string) {
+    e.preventDefault();
+    const phone = String(new FormData(e.currentTarget).get('phone') ?? '').replace(/[\s-]/g, '');
+    setBusy(subId);
+    setError(null);
+    try {
+      await api(`/orgs/${orgId}/orders/${orderId}/pay`, { method: 'POST', body: { phone } });
+      router.push(`/dashboard/orders/${orderId}?org=${orgId}`);
+    } catch (err) {
+      setError(describeError(err));
+      setBusy(null);
+    }
+  }
   const load = useCallback(() => api<SubscriptionView[]>(`/orgs/${orgId}/subscriptions`).then(setSubs).catch((e) => setError(describeError(e))), [orgId]);
   useEffect(() => void load(), [load]);
 
@@ -47,7 +63,28 @@ export default function Subscriptions({ params }: { params: Promise<{ orgId: str
               {formatINR(s.amountMinor)} per {formatInterval(s.billingInterval)}{s.quantity > 1 ? ` × ${s.quantity}` : ''} (plus GST) · Current period {day(s.currentPeriodStart)} – {day(s.currentPeriodEnd)}
             </p>
             {s.cancelAtPeriodEnd && s.status !== 'cancelled' && <p><strong>Ends on {day(s.currentPeriodEnd)}.</strong> It will not renew.</p>}
-            {s.status === 'suspended' && <p><strong>Access is suspended.</strong> Your data is kept. Please contact support.</p>}
+            {s.status === 'suspended' && (
+              <p><strong>Access is suspended.</strong> Your data is kept.{' '}
+                {s.suspensionReason === 'non_payment' ? 'Paying the renewal below restores access.' : <>Please <Link href={`/dashboard/orgs/${orgId}/support`}>contact support</Link>.</>}
+              </p>
+            )}
+            {s.status === 'past_due' && <p><strong>Renewal payment is overdue.</strong> Access continues until {day(s.renewal?.graceEndsAt ?? null)}; please pay to avoid suspension.</p>}
+            {s.renewal && (
+              <div className="notice" role="status">
+                <p style={{ margin: 0 }}>
+                  Renewal for the period starting {day(s.renewal.dueAt)}
+                  {s.renewal.totalMinor !== null ? <>: <strong>{formatINR(s.renewal.totalMinor)}</strong> incl. GST</> : null}
+                </p>
+                {s.renewal.problem === 'billing_details_required' && <p>Add your GST state code under <Link href={`/dashboard/orgs/${orgId}`}>billing details</Link> so we can prepare the renewal invoice.</p>}
+                {s.renewal.problem === 'renewal_not_ready' && <p>We are preparing your renewal; our team has been notified.</p>}
+                {s.renewal.orderId && (
+                  <form className="row" onSubmit={(e) => payRenewal(e, s.renewal!.orderId!, s.id)}>
+                    <label>Mobile number for payment<input name="phone" type="tel" inputMode="tel" required pattern="\+?[0-9 \-]{10,18}" autoComplete="tel" /></label>
+                    <button type="submit" className="btn" disabled={busy === s.id}>Pay renewal</button>
+                  </form>
+                )}
+              </div>
+            )}
             {s.scheduledChange && (
               <p>Changes to <strong>{s.scheduledChange.planName}</strong>{s.scheduledChange.amountMinor !== null ? ` (${formatINR(s.scheduledChange.amountMinor)})` : ''} on {day(s.scheduledChange.effectiveAt)}.{' '}
                 <button type="button" className="btn secondary" disabled={busy === s.id} onClick={() => act(s.id, 'scheduled-change/withdraw')}>Keep current plan</button>

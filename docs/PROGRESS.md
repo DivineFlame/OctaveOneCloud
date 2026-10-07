@@ -70,7 +70,8 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Item | State |
 |---|---|
 | Mandates (Cashfree Subscriptions), single collection owner | ⬜ (schema ready, events stored) |
-| Renewals, reminders, dunning, grace periods | ⬜ (`RenewalRun` uniqueness guard exists) |
+| Customer-paid renewals: renewal orders, reminders, past due → grace → suspension → lapse, pay-to-restore | ✅ (`docs/subscriptions.md#renewals-customer-paid`) |
+| Automatic renewal collection via mandates | ⬜ (needs Cashfree Subscriptions) |
 | Scheduled downgrades, cancel at period end | ✅ |
 | Upgrades (prorated quote + payment) | ⬜ |
 | Agent approval policies | ✅ library (`approvals.ts`); ⬜ API/UI |

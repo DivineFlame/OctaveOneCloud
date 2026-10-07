@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient, Subscription, SubscriptionStatus } from '@ooc/db';
 import { subscriptionMachine } from '@ooc/shared';
 import { AdapterRegistry, AdapterResult, AppAdapter, EntitlementPayload } from './adapters/contract';
+import { invalidateRenewalOrder, reopenCancelledRenewal } from './renewals';
 
 /**
  * Subscription lifecycle.
@@ -45,11 +46,14 @@ export async function scheduleCancellation(db: PrismaClient, orgId: string, subs
   if (sub.status === 'pending_activation') throw new SubscriptionError('not_active', 'This subscription is not active yet');
   if (sub.cancelAtPeriodEnd) return sub;
   const next: SubscriptionStatus = sub.status === 'active' || sub.status === 'trialing' ? 'cancel_scheduled' : sub.status;
-  const r = await db.subscription.updateMany({
-    where: { id: sub.id, status: sub.status, cancelAtPeriodEnd: false },
-    data: { status: next, cancelAtPeriodEnd: true, scheduledChange: Prisma.DbNull },
+  await db.$transaction(async (tx) => {
+    const r = await tx.subscription.updateMany({
+      where: { id: sub.id, status: sub.status, cancelAtPeriodEnd: false },
+      data: { status: next, cancelAtPeriodEnd: true, scheduledChange: Prisma.DbNull, scheduledChangeDueAt: null },
+    });
+    if (r.count !== 1) throw new SubscriptionError('conflict', 'The subscription changed; reload and try again');
+    await invalidateRenewalOrder(tx, sub.id, 'cancel');
   });
-  if (r.count !== 1) throw new SubscriptionError('conflict', 'The subscription changed; reload and try again');
   return load(db, orgId, subscriptionId);
 }
 
@@ -59,8 +63,11 @@ export async function withdrawCancellation(db: PrismaClient, orgId: string, subs
   if (!sub.cancelAtPeriodEnd) return sub;
   if (sub.status === 'cancelled' || (sub.currentPeriodEnd && sub.currentPeriodEnd <= now)) throw new SubscriptionError('period_ended', 'The paid period has ended; please purchase again');
   const next: SubscriptionStatus = sub.status === 'cancel_scheduled' ? 'active' : sub.status;
-  const r = await db.subscription.updateMany({ where: { id: sub.id, status: sub.status, cancelAtPeriodEnd: true }, data: { status: next, cancelAtPeriodEnd: false } });
-  if (r.count !== 1) throw new SubscriptionError('conflict', 'The subscription changed; reload and try again');
+  await db.$transaction(async (tx) => {
+    const r = await tx.subscription.updateMany({ where: { id: sub.id, status: sub.status, cancelAtPeriodEnd: true }, data: { status: next, cancelAtPeriodEnd: false } });
+    if (r.count !== 1) throw new SubscriptionError('conflict', 'The subscription changed; reload and try again');
+    await reopenCancelledRenewal(tx, sub.id, sub.currentPeriodEnd);
+  });
   return load(db, orgId, subscriptionId);
 }
 
@@ -136,15 +143,25 @@ export async function scheduleDowngrade(db: PrismaClient, input: { orgId: string
     requestedBy: input.actorId,
     requestedAt: now.toISOString(),
   };
-  const r = await db.subscription.updateMany({ where: { id: sub.id, status: sub.status, cancelAtPeriodEnd: false }, data: { scheduledChange: change as unknown as Prisma.InputJsonValue } });
-  if (r.count !== 1) throw new SubscriptionError('conflict', 'The subscription changed; reload and try again');
+  await db.$transaction(async (tx) => {
+    const r = await tx.subscription.updateMany({
+      where: { id: sub.id, status: sub.status, cancelAtPeriodEnd: false },
+      data: { scheduledChange: change as unknown as Prisma.InputJsonValue, scheduledChangeDueAt: sub.currentPeriodEnd },
+    });
+    if (r.count !== 1) throw new SubscriptionError('conflict', 'The subscription changed; reload and try again');
+    // An unpaid renewal order at the old price is replaced by one at the new price.
+    await invalidateRenewalOrder(tx, sub.id, 'reopen');
+  });
   return load(db, input.orgId, input.subscriptionId);
 }
 
 export async function withdrawScheduledChange(db: PrismaClient, orgId: string, subscriptionId: string) {
   const sub = await load(db, orgId, subscriptionId);
   if (sub.scheduledChange === null) return sub;
-  await db.subscription.updateMany({ where: { id: sub.id, lifecycleVersion: sub.lifecycleVersion }, data: { scheduledChange: Prisma.DbNull } });
+  await db.$transaction(async (tx) => {
+    await tx.subscription.updateMany({ where: { id: sub.id, lifecycleVersion: sub.lifecycleVersion }, data: { scheduledChange: Prisma.DbNull, scheduledChangeDueAt: null } });
+    await invalidateRenewalOrder(tx, sub.id, 'reopen');
+  });
   return load(db, orgId, subscriptionId);
 }
 
@@ -189,7 +206,7 @@ export async function dueLifecycleWork(db: PrismaClient, now = new Date(), limit
           OR: [
             { pendingAction: { not: null } },
             { cancelAtPeriodEnd: true, status: { not: 'cancelled' }, currentPeriodEnd: { lte: now } },
-            { scheduledChange: { not: Prisma.DbNull }, status: { in: ['active', 'trialing'] }, currentPeriodEnd: { lte: now } },
+            { scheduledChangeDueAt: { lte: now }, status: { in: ['active', 'trialing'] } },
           ],
         },
       ],
@@ -212,7 +229,9 @@ export async function runLifecycle(db: PrismaClient, adapters: AdapterRegistry, 
   if (sub.pendingAction === 'suspend') return suspend(db, adapters, sub, now);
   if (sub.pendingAction === 'resume') return resume(db, adapters, sub, now);
   if (sub.cancelAtPeriodEnd && periodOver && sub.status !== 'cancelled') return cancel(db, adapters, sub, now);
-  if (sub.scheduledChange && periodOver && (sub.status === 'active' || sub.status === 'trialing')) return applyDowngrade(db, adapters, sub, now);
+  // Due at the period boundary it was scheduled for, even if the renewal was paid early and the period moved on.
+  const changeDue = !!sub.scheduledChange && !!sub.scheduledChangeDueAt && sub.scheduledChangeDueAt <= now;
+  if (changeDue && (sub.status === 'active' || sub.status === 'trialing')) return applyDowngrade(db, adapters, sub, now);
   return { subscriptionId, action: 'none', result: 'skipped' };
 }
 
@@ -282,7 +301,7 @@ async function suspend(db: PrismaClient, adapters: AdapterRegistry, sub: Subscri
   const reason = sub.pendingActionReason ?? 'operator_request';
   const error = await callComponents(adapters, sub, components, 'suspend', (a, _c, key) => a.suspendAccess({ orgId: sub.orgId, correlationId: `sub-${sub.id}`, idempotencyKey: key, reason }));
   if (error) return deferred(db, sub, 'suspend', error, now);
-  return commit(db, sub, 'suspend', { status: 'suspended', suspendedAt: now, pendingAction: null, pendingActionReason: null }, revokeAll(sub, now), { reason });
+  return commit(db, sub, 'suspend', { status: 'suspended', suspendedAt: now, suspensionReason: reason, pendingAction: null, pendingActionReason: null }, revokeAll(sub, now), { reason });
 }
 
 async function resume(db: PrismaClient, adapters: AdapterRegistry, sub: Subscription, now: Date) {
@@ -295,7 +314,7 @@ async function resume(db: PrismaClient, adapters: AdapterRegistry, sub: Subscrip
     db,
     sub,
     'resume',
-    { status: sub.cancelAtPeriodEnd ? 'cancel_scheduled' : 'active', suspendedAt: null, pendingAction: null, pendingActionReason: null },
+    { status: sub.cancelAtPeriodEnd ? 'cancel_scheduled' : 'active', suspendedAt: null, suspensionReason: null, pendingAction: null, pendingActionReason: null },
     async (tx) => {
       // Restore only the current plan's grants (grants of a plan replaced by a downgrade stay revoked).
       await tx.entitlement.updateMany({ where: { orgId: sub.orgId, sourceType: 'subscription', sourceId: { in: current }, revokedAt: { not: null } }, data: { revokedAt: null } });
@@ -309,7 +328,7 @@ async function cancel(db: PrismaClient, adapters: AdapterRegistry, sub: Subscrip
   // Access ends; data is retained (deletion follows the retention policy, never automatically here).
   const error = await callComponents(adapters, sub, components, 'cancel', (a, _c, key) => a.suspendAccess({ orgId: sub.orgId, correlationId: `sub-${sub.id}`, idempotencyKey: key, reason: 'subscription_ended' }));
   if (error) return deferred(db, sub, 'cancel', error, now);
-  return commit(db, sub, 'cancel', { status: 'cancelled', cancelledAt: now, pendingAction: null, pendingActionReason: null, scheduledChange: Prisma.DbNull }, revokeAll(sub, now), {
+  return commit(db, sub, 'cancel', { status: 'cancelled', cancelledAt: now, pendingAction: null, pendingActionReason: null, scheduledChange: Prisma.DbNull, scheduledChangeDueAt: null }, revokeAll(sub, now), {
     periodEnd: sub.currentPeriodEnd?.toISOString(),
   });
 }
@@ -334,7 +353,7 @@ async function applyDowngrade(db: PrismaClient, adapters: AdapterRegistry, sub: 
     db,
     sub,
     'downgrade',
-    { planVersionId: change.planVersionId, priceVersionId: change.priceVersionId, quantity: change.quantity, scheduledChange: Prisma.DbNull },
+    { planVersionId: change.planVersionId, priceVersionId: change.priceVersionId, quantity: change.quantity, scheduledChange: Prisma.DbNull, scheduledChangeDueAt: null },
     async (tx) => {
       await revokeAll(sub, now)(tx);
       for (const c of components) {

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { ORIGIN, createOrg, createTestApp, db, makeOperator, resetDb, sellableProduct, signUp } from './harness';
+import { applyPaymentEvidence, prepareRenewals } from '@ooc/integrations';
+import { ORIGIN, cashfreeCalls, createOrg, createTestApp, db, makeOperator, onCashfree, resetDb, sellableProduct, signUp } from './harness';
 
 let app: NestExpressApplication;
 beforeAll(async () => {
@@ -66,5 +67,40 @@ describe('subscriptions API', () => {
     const list = await op.agent.get('/v1/admin/subscriptions?status=active').expect(200);
     expect(list.body.map((s: { id: string }) => s.id)).toEqual([sub.id]);
     expect(await db.auditEvent.count({ where: { action: 'subscription.suspend_requested' } })).toBe(1);
+  });
+
+  it('shows the renewal and pays it through hosted checkout, extending the subscription', async () => {
+    onCashfree((c) => {
+      const body = JSON.parse(String(c.init.body));
+      return new Response(JSON.stringify({ order_id: body.order_id, cf_order_id: 1, order_amount: body.order_amount, order_currency: 'INR', order_status: 'ACTIVE', payment_session_id: 'session_renew' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const owner = await signUp(app, 'renew@example.com');
+    const orgId = await createOrg(owner.agent);
+    const { sub } = await activeSubscription(orgId);
+    await db.subscription.update({ where: { id: sub.id }, data: { currentPeriodEnd: new Date(Date.now() + 3 * 86_400_000) } });
+    const prepared = await prepareRenewals(db, { noticeDays: 7, graceDays: 7, lapseDays: 30 }, '29');
+    expect(prepared.created).toHaveLength(1);
+
+    const list = await owner.agent.get(`/v1/orgs/${orgId}/subscriptions`).expect(200);
+    const renewal = list.body[0].renewal;
+    expect(renewal).toMatchObject({ totalMinor: 235882, problem: null });
+    expect(renewal.orderId).toBeTruthy();
+
+    const mallory = await signUp(app, 'mallory2@example.com');
+    const malloryOrg = await createOrg(mallory.agent, 'Mallory Two');
+    await mallory.agent.post(`/v1/orgs/${malloryOrg}/orders/${renewal.orderId}/pay`).set('Origin', ORIGIN).send({ phone: '9876543210' }).expect(404);
+
+    const paid = await owner.agent.post(`/v1/orgs/${orgId}/orders/${renewal.orderId}/pay`).set('Origin', ORIGIN).send({ phone: '9876543210' }).expect(200);
+    expect(paid.body).toMatchObject({ kind: 'renewal', status: 'awaiting_payment', payment: { paymentSessionId: 'session_renew' } });
+    await owner.agent.post(`/v1/orgs/${orgId}/orders/${renewal.orderId}/pay`).set('Origin', ORIGIN).send({ phone: '9876543210' }).expect(200);
+    expect(cashfreeCalls).toHaveLength(1); // open session re-used
+    expect(JSON.parse(String(cashfreeCalls[0]!.init.body)).order_amount).toBe(2358.82);
+
+    const po = await db.paymentOrder.findFirstOrThrow({ where: { orderId: renewal.orderId } });
+    await applyPaymentEvidence(db, { providerOrderId: po.providerOrderId, cfPaymentId: 'cf-renew', providerStatus: 'SUCCESS', amountMinor: 235882, currency: 'INR', raw: {} }, 'webhook');
+    const after = await owner.agent.get(`/v1/orgs/${orgId}/subscriptions`).expect(200);
+    expect(after.body[0].renewal).toBeNull();
+    expect(new Date(after.body[0].currentPeriodStart).getTime()).toBe(new Date(renewal.dueAt).getTime());
+    await owner.agent.post(`/v1/orgs/${orgId}/orders/${renewal.orderId}/pay`).set('Origin', ORIGIN).send({ phone: '9876543210' }).expect(409);
   });
 });

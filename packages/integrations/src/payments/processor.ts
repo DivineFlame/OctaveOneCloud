@@ -1,6 +1,7 @@
 import { PaymentAttemptStatus, Prisma, PrismaClient, RefundStatus, minorFromDb } from '@ooc/db';
 import { decimalToMinor, redact } from '@ooc/shared';
 import type { CashfreeClient, CashfreePayment } from '../cashfree/client';
+import { applyRenewalPayment } from '../renewals';
 
 /**
  * Applies payment evidence to local state. Evidence comes from a signature-verified webhook or from
@@ -106,6 +107,18 @@ export async function applyPaymentEvidence(db: PrismaClient, ev: PaymentEvidence
       await tx.order.update({ where: { id: po.orderId }, data: { status: 'needs_attention' } });
       await audit(tx, po.orgId, 'payment.received_for_inactive_order', po.orderId, { cfPaymentId: ev.cfPaymentId });
       return { result: 'mismatch', orderId: po.orderId } as const;
+    }
+
+    if (po.order.kind === 'renewal') {
+      // Renewals extend the existing subscription; nothing is provisioned again.
+      const renewal = await applyRenewalPayment(tx, po.orderId);
+      if (renewal !== 'extended' && renewal !== 'already_applied') {
+        await tx.order.update({ where: { id: po.orderId }, data: { status: 'needs_attention' } });
+        await audit(tx, po.orgId, 'renewal.payment_needs_review', po.orderId, { cfPaymentId: ev.cfPaymentId, reason: renewal, action: 'refund_or_manual_extension' });
+      }
+      await tx.outboxEvent.create({ data: { topic: 'order.paid', aggregateId: po.orderId, payload: { orderId: po.orderId, orgId: po.orgId, source, renewal } } });
+      await audit(tx, po.orgId, 'payment.confirmed', po.orderId, { cfPaymentId: ev.cfPaymentId, source });
+      return { result: 'paid', orderId: po.orderId, provisioningJobIds: [] } as const;
     }
 
     const jobIds: string[] = [];

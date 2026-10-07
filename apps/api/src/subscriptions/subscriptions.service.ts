@@ -85,6 +85,18 @@ export class SubscriptionsService {
       scheduled = { ...change, planName: target?.planVersion.plan.name ?? null, amountMinor: target ? minorFromDb(target.amountMinor) : null };
     }
     const changeable = (s.status === 'active' || s.status === 'trialing') && !s.cancelAtPeriodEnd;
+    const run = await this.db.renewalRun.findFirst({ where: { subscriptionId: s.id, status: 'pending' }, orderBy: { periodStart: 'desc' } });
+    const renewalOrder = run?.orderId ? await this.db.order.findUnique({ where: { id: run.orderId }, select: { id: true, status: true, totalMinor: true } }) : null;
+    const renewal = run
+      ? {
+          dueAt: run.periodStart,
+          graceEndsAt: s.graceEndsAt,
+          orderId: renewalOrder?.status === 'awaiting_payment' ? renewalOrder.id : null,
+          totalMinor: renewalOrder ? minorFromDb(renewalOrder.totalMinor) : null,
+          // Shown to the customer only when they can fix it (billing details); operators see the raw error.
+          problem: run.lastError ? (run.lastError.startsWith('billing_details_required') ? 'billing_details_required' : withOptions ? 'renewal_not_ready' : run.lastError) : null,
+        }
+      : null;
     return {
       id: s.id,
       org: s.org,
@@ -102,6 +114,8 @@ export class SubscriptionsService {
       suspendedAt: s.suspendedAt,
       cancelledAt: s.cancelledAt,
       pendingAction: s.pendingAction,
+      suspensionReason: s.suspensionReason,
+      renewal,
       lastLifecycleError: withOptions ? undefined : s.lastLifecycleError,
       downgradeOptions: withOptions && changeable ? await downgradeOptions(this.db, s) : [],
     };

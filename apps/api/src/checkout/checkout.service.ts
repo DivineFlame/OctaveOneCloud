@@ -70,13 +70,20 @@ export class CheckoutService {
       throw e;
     }
 
+    await this.openPayment(paymentOrderId, orderId, orgId, actor, input.phone);
+    await this.audit.record({ actorId: actor.id, actorType: 'user', orgId, action: 'checkout.started', targetType: 'order', targetId: orderId });
+    return this.present(orderId, orgId);
+  }
+
+  /** Creates the Cashfree order for a local payment order (server-side amount; browser gets only the session id). */
+  private async openPayment(paymentOrderId: string, orderId: string, orgId: string, actor: { id: string; email: string }, phone: string, onRejection: 'order' | 'payment' = 'order') {
     const po = await this.db.paymentOrder.findUniqueOrThrow({ where: { id: paymentOrderId } });
     try {
       const cf = await this.cashfree.createOrder({
         orderId: po.providerOrderId,
         amountMinor: minorFromDb(po.amountMinor),
         currency: 'INR',
-        customer: { id: orgId.replace(/-/g, ''), email: actor.email, phone: input.phone },
+        customer: { id: orgId.replace(/-/g, ''), email: actor.email, phone: phone },
         returnUrl: `${this.config.APP_URL}/dashboard/orders/${orderId}?provider_order_id={order_id}`,
         notifyUrl: `${this.config.API_URL}/v1/webhooks/cashfree/pg`,
       });
@@ -88,10 +95,40 @@ export class CheckoutService {
         this.logger.warn(`Cashfree order creation outcome unknown for ${po.id}; reconciliation scheduled`);
         throw new ServiceUnavailableException({ error: 'payment_provider_timeout', orderId });
       }
-      await this.db.order.update({ where: { id: orderId }, data: { status: 'needs_attention' } });
+      if (onRejection === 'payment') {
+        // Only this payment attempt failed to open (e.g. invalid phone); the order stays payable.
+        await this.db.paymentOrder.update({ where: { id: po.id }, data: { status: 'terminated' } });
+      } else {
+        await this.db.order.update({ where: { id: orderId }, data: { status: 'needs_attention' } });
+      }
       throw e;
     }
-    await this.audit.record({ actorId: actor.id, actorType: 'user', orgId, action: 'checkout.started', targetType: 'order', targetId: orderId });
+  }
+
+  /**
+   * Pays an existing order that is awaiting payment (renewal orders, or an order whose payment session expired).
+   * Re-uses an open payment session; otherwise opens a new Cashfree order for the same server-side amount.
+   */
+  async payOrder(orgId: string, orderId: string, actor: { id: string; email: string }, input: { phone: string }) {
+    if (!this.cashfree.enabled) throw new ServiceUnavailableException({ error: 'payments_unavailable' });
+    const opened = await this.db.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Order" WHERE id = ${orderId}::uuid AND "orgId" = ${orgId}::uuid FOR UPDATE`;
+      if (locked.length !== 1) throw new NotFoundException();
+      const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: { paymentOrders: true } });
+      if (order.status !== 'awaiting_payment') throw new ConflictException({ error: 'order_not_payable', status: order.status });
+      const open = order.paymentOrders.find((p) => p.status === 'active' && p.paymentSessionId);
+      if (open) return null;
+      if (order.paymentOrders.some((p) => p.status === 'created' || p.status === 'paid')) throw new ConflictException({ error: 'payment_in_progress' });
+      const n = order.paymentOrders.length;
+      const po = await tx.paymentOrder.create({
+        data: { orgId, orderId, environment: this.config.CASHFREE_ENV, providerOrderId: n === 0 ? `ooc-${orderId}` : `ooc-${orderId}-${n + 1}`, amountMinor: order.totalMinor, currency: order.currency },
+      });
+      return po.id;
+    });
+    if (opened) {
+      await this.openPayment(opened, orderId, orgId, actor, input.phone, 'payment');
+      await this.audit.record({ actorId: actor.id, actorType: 'user', orgId, action: 'checkout.started', targetType: 'order', targetId: orderId });
+    }
     return this.present(orderId, orgId);
   }
 
@@ -104,6 +141,7 @@ export class CheckoutService {
     const po = order.paymentOrders.find((p) => p.status !== 'terminated' && p.status !== 'expired');
     return {
       id: order.id,
+      kind: order.kind,
       status: order.status,
       totalMinor: order.totalMinor,
       currency: order.currency,
