@@ -322,6 +322,8 @@ model TaxRule {
   taxCategory String
   supplyType  SupplyTypeRule
   components  Json // [{ name: "CGST", rateBps: 900 }, ...]
+  // SAC/HSN code printed on GST invoices for this category (accountant-confirmed).
+  sacCode     String?
   reviewed    Boolean        @default(false)
   reviewedBy  String?
   reviewedAt  DateTime?
@@ -455,6 +457,9 @@ model Invoice {
   order          Order?        @relation(fields: [orderId], references: [id])
   lines          InvoiceLine[]
   creditNotes    CreditNote[]
+
+  @@unique([orderId])
+  @@index([orgId, issuedAt])
 }
 
 model InvoiceLine {
@@ -465,6 +470,7 @@ model InvoiceLine {
   amountMinor BigInt
   taxMinor    BigInt
   taxDetail   Json
+  sacCode     String?
   invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
 
@@ -476,6 +482,8 @@ model CreditNote {
   taxMinor    BigInt
   reason      String
   refundId    String?  @db.Uuid
+  taxDetail   Json?
+  createdById String?  @db.Uuid
   issuedAt    DateTime?
   createdAt   DateTime @default(now())
   invoice     Invoice  @relation(fields: [invoiceId], references: [id])
@@ -908,6 +916,14 @@ model OutboxEvent {
   createdAt   DateTime     @default(now())
 
   @@index([status, availableAt])
+}
+
+// Gapless document numbering (GST requires consecutive invoice / credit-note serials per financial year).
+// Rows are locked with UPDATE … RETURNING inside the issuing transaction.
+model DocumentSequence {
+  series     String   @id // e.g. "INV/26-27", "CN/26-27"
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
 }
 
 model IdempotencyRecord {

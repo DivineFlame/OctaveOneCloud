@@ -1,5 +1,6 @@
 import { PrismaClient } from '@ooc/db';
-import { AdapterRegistry, CashfreeClient, expireStaleReservations, processInboxRow, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
+import { AdapterRegistry, CashfreeClient, expireStaleReservations, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
+import { SellerProfile } from '@ooc/shared';
 import { log } from './log';
 
 export interface Deps {
@@ -7,11 +8,34 @@ export interface Deps {
   adapters: AdapterRegistry;
   cashfree: CashfreeClient;
   enqueueProvisioning: (jobId: string) => Promise<void>;
+  /** null when the seller's legal details are not configured: invoices wait (the sweeper issues them later). */
+  seller: SellerProfile | null;
+}
+
+let warnedNoSeller = false;
+
+/** Issues the tax invoice for a paid order. Idempotent; failures are retried by the sweeper. */
+export async function issueInvoice(deps: Deps, orderId: string) {
+  if (!deps.seller) {
+    if (!warnedNoSeller) log('warn', 'invoices not issued: SELLER_LEGAL_NAME / SELLER_ADDRESS / SELLER_STATE_CODE not configured');
+    warnedNoSeller = true;
+    return null;
+  }
+  try {
+    const r = await issueInvoiceForOrder(deps.db, orderId, deps.seller);
+    if (r.result === 'issued') log('info', 'invoice issued', { orderId, invoiceId: r.invoiceId, number: r.number });
+    else if (r.result === 'not_ready') log('warn', 'invoice not issued', { orderId, reason: r.reason });
+    return r;
+  } catch (e) {
+    log('error', 'invoice issue failed', { orderId, error: (e as Error).message });
+    return null;
+  }
 }
 
 export async function handleInbox(deps: Deps, inboxId: string) {
   const r = await processInboxRow(deps.db, inboxId);
   for (const id of r.provisioningJobIds ?? []) await deps.enqueueProvisioning(id);
+  if (r.paidOrderId) await issueInvoice(deps, r.paidOrderId);
   log('info', 'inbox processed', { inboxId, status: r.status, detail: r.detail });
   return r;
 }
@@ -28,7 +52,11 @@ export async function handleReconcile(deps: Deps, paymentOrderId: string) {
     return [];
   }
   const results = await reconcilePaymentOrder(deps.db, deps.cashfree, paymentOrderId);
-  for (const r of results) if (r.result === 'paid') for (const id of r.provisioningJobIds) await deps.enqueueProvisioning(id);
+  for (const r of results) {
+    if (r.result !== 'paid') continue;
+    for (const id of r.provisioningJobIds) await deps.enqueueProvisioning(id);
+    await issueInvoice(deps, r.orderId);
+  }
   log('info', 'payment order reconciled', { paymentOrderId, results: results.map((r) => r.result) });
   return results;
 }
@@ -52,5 +80,10 @@ export async function sweep(deps: Deps, enqueue: { inbox: (id: string) => Promis
   for (const p of pending) await enqueue.reconcile(p.id);
 
   const expired = await expireStaleReservations(deps.db);
-  if (inbox.length || jobs.length || pending.length || expired) log('info', 'sweep', { inbox: inbox.length, jobs: jobs.length, reconcile: pending.length, expiredReservations: expired });
+
+  let invoices = 0;
+  if (deps.seller) {
+    for (const o of await ordersAwaitingInvoice(deps.db, 50)) if ((await issueInvoice(deps, o.id))?.result === 'issued') invoices++;
+  }
+  if (inbox.length || jobs.length || pending.length || expired || invoices) log('info', 'sweep', { inbox: inbox.length, jobs: jobs.length, reconcile: pending.length, expiredReservations: expired, invoices });
 }

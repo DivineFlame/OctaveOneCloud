@@ -15,6 +15,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { AdminModule } from './admin/admin.module';
 import { HealthModule } from './health/health.module';
 import { SupportModule } from './support/support.module';
+import { InvoicesModule } from './invoices/invoices.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { SupportModule } from './support/support.module';
     AdminModule,
     HealthModule,
     SupportModule,
+    InvoicesModule,
   ],
   providers: [
     // Throttler runs before the session guard (guards execute in registration order).

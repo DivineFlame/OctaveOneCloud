@@ -143,7 +143,7 @@ interface PgWebhook {
   };
 }
 
-export type InboxOutcome = { status: 'processed' | 'ignored'; detail: string; provisioningJobIds?: string[] };
+export type InboxOutcome = { status: 'processed' | 'ignored'; detail: string; provisioningJobIds?: string[]; paidOrderId?: string };
 
 export class InboxProcessingError extends Error {}
 
@@ -187,7 +187,7 @@ async function processPgEvent(db: PrismaClient, body: PgWebhook): Promise<InboxO
       'webhook',
     );
     if (r.result === 'unknown_order') throw new InboxProcessingError(`unknown provider order ${order.order_id}`);
-    return { status: 'processed', detail: r.result, provisioningJobIds: r.result === 'paid' ? r.provisioningJobIds : undefined };
+    return { status: 'processed', detail: r.result, provisioningJobIds: r.result === 'paid' ? r.provisioningJobIds : undefined, paidOrderId: r.result === 'paid' ? r.orderId : undefined };
   }
   if (type.startsWith('REFUND_')) {
     const refund = body.data?.refund;

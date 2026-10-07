@@ -1,6 +1,6 @@
 # Progress checklist
 
-Last updated 2026-09-23. Legend: ✅ implemented and tested here · 🟡 implemented, not verified against a real provider · ⛔ blocked (needs access/credentials/decision) · ⬜ not started.
+Last updated 2026-10-07. Legend: ✅ implemented and tested here · 🟡 implemented, not verified against a real provider · ⛔ blocked (needs access/credentials/decision) · ⬜ not started.
 
 Nothing here is production-certified. No real purchase, payment collection, DNS change or customer migration has been performed.
 
@@ -37,7 +37,8 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | PostgreSQL in stack: tuning, nightly verified dumps, restore/drill tooling | ✅ | `db-backup` service + `deploy/postgres/restore.sh`; backup, drill and full replace tested on the Compose stack |
 | OIDC login with existing identity provider | ⬜ | Config placeholders only |
 | SMTP transport | ✅ | nodemailer via `SMTP_URL`; required in production |
-| Invoice numbering / PDF / credit-note issuing | ⬜ | Models exist; issuing flow not built |
+| GST invoices: auto-issue on payment, gap-free FY numbering, immutability, credit notes, printable view | ✅ | `docs/invoicing.md`; accountant sign-off pending; no e-invoicing (IRN) |
+| Support tickets (customer + operator queue, internal notes, email) | ✅ | |
 
 ## Stage 2 — Paid purchase
 

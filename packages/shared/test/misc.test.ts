@@ -60,6 +60,7 @@ describe('config', () => {
   it('rejects live mutation switch outside live env and missing credentials', () => {
     expect(() => loadConfig({ ...base, RESELLERCLUB_ENV: 'demo', RESELLERCLUB_ALLOW_LIVE_MUTATIONS: 'true' })).toThrow(/ALLOW_LIVE/);
     expect(() => loadConfig({ ...base, CASHFREE_ENV: 'sandbox' })).toThrow(/CASHFREE_CLIENT_ID/);
+    expect(() => loadConfig({ ...base, CASHFREE_ENV: 'sandbox' })).toThrow(/SELLER_LEGAL_NAME is required when payments are enabled/);
   });
   it('requires SMTP in production and MAIL_FROM with SMTP', () => {
     const prod = { ...base, NODE_ENV: 'production', APP_URL: 'https://x.test', API_URL: 'https://x.test/api', COOKIE_SECURE: 'true' };
@@ -68,7 +69,7 @@ describe('config', () => {
     expect(loadConfig({ ...prod, SMTP_URL: 'smtps://u:p@mail.test:465', MAIL_FROM: 'OctaveOneCloud <no-reply@x.test>' }).NODE_ENV).toBe('production');
   });
   it('separates provider sandboxes from production by APP_ENV', () => {
-    const prod = { ...base, NODE_ENV: 'production', APP_URL: 'https://x.test', API_URL: 'https://x.test/api', COOKIE_SECURE: 'true', SMTP_URL: 'smtp://m.test:25', MAIL_FROM: 'a@x.test', CASHFREE_CLIENT_ID: 'i', CASHFREE_CLIENT_SECRET: 's', CASHFREE_WEBHOOK_SECRET: 'w' };
+    const prod = { ...base, NODE_ENV: 'production', APP_URL: 'https://x.test', API_URL: 'https://x.test/api', COOKIE_SECURE: 'true', SMTP_URL: 'smtp://m.test:25', MAIL_FROM: 'a@x.test', CASHFREE_CLIENT_ID: 'i', CASHFREE_CLIENT_SECRET: 's', CASHFREE_WEBHOOK_SECRET: 'w', SELLER_LEGAL_NAME: 'S', SELLER_ADDRESS: 'A', SELLER_STATE_CODE: '29' };
     expect(() => loadConfig({ ...prod, CASHFREE_ENV: 'sandbox' })).toThrow(/APP_ENV=staging/);
     expect(loadConfig({ ...prod, CASHFREE_ENV: 'sandbox', APP_ENV: 'staging' }).CASHFREE_ENV).toBe('sandbox');
     expect(() => loadConfig({ ...prod, CASHFREE_ENV: 'production', APP_ENV: 'staging' })).toThrow(/only allowed when APP_ENV=production/);

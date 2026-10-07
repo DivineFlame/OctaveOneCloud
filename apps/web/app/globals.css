@@ -80,3 +80,17 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table-wrap { overflow-x: auto; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .muted { color: var(--muted); }
+
+/* Invoices */
+.invoice-doc h3 { margin-bottom: 4px; }
+.invoice-meta { display: grid; grid-template-columns: auto auto; gap: 2px 12px; margin: 0; }
+.invoice-meta dt { color: var(--muted); }
+.invoice-meta dd { margin: 0; font-weight: 600; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+tfoot th[scope="row"] { text-align: right; font-weight: 500; }
+@media print {
+  header.site, footer.site, .no-print { display: none !important; }
+  body { background: #fff; color: #000; }
+  .invoice-doc { font-size: 11pt; }
+  .table-wrap { overflow: visible; }
+}

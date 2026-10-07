@@ -5,6 +5,10 @@ const bool = z
   .optional()
   .transform((v) => v === 'true' || v === '1');
 
+/** Blank → default, so an empty line in a Dokploy env block does not fail startup. */
+const docPrefix = (fallback: string) =>
+  z.preprocess((v) => (v === '' || v === undefined ? fallback : v), z.string().regex(/^[A-Z0-9]{1,4}$/, 'must be 1-4 uppercase letters/digits'));
+
 const optionalString = z
   .string()
   .optional()
@@ -66,6 +70,12 @@ export const baseEnvSchema = z.object({
 
   SELLER_GSTIN: optionalString,
   SELLER_STATE_CODE: optionalString,
+  /** Seller identity printed on GST invoices (accountant to confirm). Required once payments are enabled. */
+  SELLER_LEGAL_NAME: optionalString,
+  SELLER_ADDRESS: optionalString,
+  /** Invoice / credit-note number prefixes (1–4 letters/digits; keeps numbers within GST's 16-character limit). */
+  INVOICE_PREFIX: docPrefix('OOC'),
+  CREDIT_NOTE_PREFIX: docPrefix('OCN'),
 
   MODEL_GATEWAY_URL: optionalString,
   MODEL_GATEWAY_API_KEY: optionalString,
@@ -110,6 +120,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     problems.push('RESELLERCLUB_ALLOW_LIVE_MUTATIONS may only be set when RESELLERCLUB_ENV=live');
   }
   if (c.CASHFREE_ENV !== 'disabled') {
+    for (const k of ['SELLER_LEGAL_NAME', 'SELLER_ADDRESS', 'SELLER_STATE_CODE'] as const) {
+      if (!c[k]) problems.push(`${k} is required when payments are enabled (printed on GST invoices)`);
+    }
     for (const k of ['CASHFREE_CLIENT_ID', 'CASHFREE_CLIENT_SECRET', 'CASHFREE_WEBHOOK_SECRET'] as const) {
       if (!c[k]) problems.push(`${k} is required when CASHFREE_ENV=${c.CASHFREE_ENV}`);
     }
@@ -147,6 +160,21 @@ export function isInsecureHttp(c: Pick<AppConfig, 'APP_URL'>): boolean {
 /** Effective deployment tier: APP_ENV if set, otherwise production for NODE_ENV=production, else development. */
 export function appEnv(c: Pick<AppConfig, 'APP_ENV' | 'NODE_ENV'>): 'development' | 'staging' | 'production' {
   return c.APP_ENV ?? (c.NODE_ENV === 'production' ? 'production' : 'development');
+}
+
+export interface SellerProfile {
+  legalName: string;
+  address: string;
+  gstin: string | null;
+  stateCode: string;
+  invoicePrefix: string;
+  creditNotePrefix: string;
+}
+
+/** Seller identity for GST documents, or null while it is not configured. */
+export function sellerProfile(c: AppConfig): SellerProfile | null {
+  if (!c.SELLER_LEGAL_NAME || !c.SELLER_ADDRESS || !c.SELLER_STATE_CODE) return null;
+  return { legalName: c.SELLER_LEGAL_NAME, address: c.SELLER_ADDRESS, gstin: c.SELLER_GSTIN ?? null, stateCode: c.SELLER_STATE_CODE, invoicePrefix: c.INVOICE_PREFIX, creditNotePrefix: c.CREDIT_NOTE_PREFIX };
 }
 
 export function cashfreeBaseUrl(env: AppConfig['CASHFREE_ENV']): string | null {
