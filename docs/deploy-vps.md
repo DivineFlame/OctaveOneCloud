@@ -25,6 +25,20 @@ internet.
 | OS | **Ubuntu 24.04 LTS** (64-bit, x86_64) | same |
 | Location | India region (Mumbai/Bangalore) for latency to customers and Indian payment/supplier APIs | |
 
+Why these numbers (measured 2026-10-08 on the full Compose stack, 2 vCPU / 8 GB build machine):
+
+| What | Measured |
+|---|---|
+| Dokploy itself (panel, Traefik, its own database) | Dokploy requires ≥ 2 GB RAM and 30 GB disk ([installation docs](https://docs.dokploy.com/docs/core/installation)) |
+| OctaveOneCloud running, idle | ≈ 360 MB RAM (worker 150, Postgres 85, API 75, web 40, Redis 12) |
+| OctaveOneCloud under load (40 concurrent visitors) | ≈ 550 MB RAM; web ≈ 1 CPU core at ≈ 520 pages/s, p95 135 ms |
+| Deploy (cold build of all 4 images, as Dokploy does) | +1.3 GB RAM peak, ≈ 3½ min on 2 vCPU, ≈ 5 GB disk of build cache |
+| PostgreSQL as data grows | up to `PG_SHARED_BUFFERS` (512 MB default) plus per-query memory |
+
+So 4 GB works only with swap and no other apps; 8 GB keeps deploys from squeezing the live site. Build cache grows
+by several GB per deploy (≈ 24 GB after ten rebuilds in testing) — prune it regularly: `docker builder prune -af`
+(weekly, or after deploys), or enable Docker cleanup in Dokploy's server settings.
+
 Also needed: a **static IPv4 address** (ResellerClub allowlists it), your SSH public key added in the provider's
 panel, and an S3-compatible bucket for off-site backups (AWS S3, Cloudflare R2, Backblaze B2, Wasabi…).
 
@@ -144,8 +158,8 @@ No domain but want HTTPS? Use `203-0-113-10.sslip.io` as the domain (your IP wit
 | Dokploy updates | Dokploy → Settings → Update |
 | PostgreSQL minor updates | bump `postgres:16.x-alpine` tag in `docker-compose.yml` and deploy (same data volume) |
 | PostgreSQL major upgrade (16 → 17) | dump → new volume → restore; plan it, never just change the major tag |
-| Rotate `POSTGRES_PASSWORD` | `ALTER USER ooc PASSWORD '…'` inside postgres, then update Dokploy env and redeploy |
-| Disk filling up | `docker system prune -af --volumes=false` removes old images (never `--volumes`) |
+| Rotate `POSTGRES_PASSWORD` | change it in Dokploy and redeploy — the postgres service applies the new password on start |
+| Disk filling up | `docker builder prune -af` (build cache) and `docker image prune -af` (unused images); never prune volumes |
 
 ## 9. Checklist
 
