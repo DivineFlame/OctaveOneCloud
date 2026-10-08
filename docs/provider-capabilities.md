@@ -41,7 +41,8 @@ Candidate base URLs (confirm before use): demo `https://test.httpapi.com/api`, l
 |---|---|---|---|---|---|---|---|---|
 | resellerclub.domain | Domains | availability search | _to record_ (client calls `/domains/available.json` — unconfirmed) | — | unknown | no | **unverified** | Disable domain search |
 | resellerclub.domain | Domains | customer / contact create & map | _to record_ | — | unknown | no | unverified | Manual service task |
-| resellerclub.domain | Domains | cost / price lookup | _to record_ | — | unknown | no | unverified | Operator enters supplier cost manually |
+| resellerclub.pricing | All | reseller **cost** price list — `GET /products/reseller-cost-price.json` (optional `reseller-id`) | <https://www.resellerclub.com/help/article/Get-Reseller-Cost-Pricing-Details-Using-the-API> (reviewed 2026-10-08) | — | unknown | no | docs confirmed; demo run pending | Operator enters supplier cost manually |
+| resellerclub.pricing | All | **customer** (selling) price list — `GET /products/customer-price.json` (optional `customer-id`) | <https://www.resellerclub.com/help/article/How-to-Fetch-Customer-Pricing-Using-the-Products-Pricing-API> (reviewed 2026-10-08) | — | unknown | no | docs confirmed; demo run pending | Selling prices kept in the catalogue only |
 | resellerclub.domain | Domains | register (incl. premium handling) | _to record_ | — | unknown | no | unverified | Manual service task |
 | resellerclub.domain | Domains | transfer | _to record_ | — | unknown | no | unverified | Manual service task |
 | resellerclub.domain | Domains | renew | _to record_ | — | unknown | no | unverified | Manual service task |

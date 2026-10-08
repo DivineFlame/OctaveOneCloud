@@ -55,11 +55,11 @@ export class ResellerClubClient {
     return url;
   }
 
-  private async send(method: 'GET' | 'POST', path: string, params: Params): Promise<unknown> {
+  private async send(method: 'GET' | 'POST', path: string, params: Params, timeoutMs = this.timeoutMs): Promise<unknown> {
     const url = this.buildUrl(path, params);
     let res: Response;
     try {
-      res = await this.fetchImpl(url, { method, signal: AbortSignal.timeout(this.timeoutMs), headers: { accept: 'application/json' } });
+      res = await this.fetchImpl(url, { method, signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });
     } catch (e) {
       throw new SupplierError('unknown_outcome', `No response from ResellerClub (${(e as Error).name})`, { url: redactUrl(url.toString()) });
     }
@@ -77,9 +77,23 @@ export class ResellerClubClient {
     return body;
   }
 
-  /** Read-only call; safe to retry. */
-  query(path: string, params: Params = {}) {
-    return this.send('GET', path, params);
+  /** Read-only call; safe to retry. Large responses (price lists) may pass a longer timeout. */
+  query(path: string, params: Params = {}, opts: { timeoutMs?: number } = {}) {
+    return this.send('GET', path, params, opts.timeoutMs);
+  }
+
+  /** Reseller cost price — GET /products/reseller-cost-price.json (help article "Get Reseller Cost Pricing Details Using the API"). */
+  resellerCostPrice() {
+    return this.query('/products/reseller-cost-price.json', {}, { timeoutMs: 120_000 });
+  }
+
+  /** Generic customer (selling) price — GET /products/customer-price.json ("How to Fetch Customer Pricing Using the Products Pricing API"). */
+  customerPrice(customerId?: number) {
+    return this.query('/products/customer-price.json', { 'customer-id': customerId }, { timeoutMs: 120_000 });
+  }
+
+  get environment() {
+    return this.config.RESELLERCLUB_ENV;
   }
 
   /** Journaled mutation with reconcile-before-retry semantics. */

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@ooc/db';
 import { AppConfig, appEnv, isInsecureHttp, sellerProfile } from '@ooc/shared';
+import { costDrift } from './resellerclub/pricing';
 
 /**
  * Launch readiness: what the running system can check about itself, plus the manual launch gates it cannot
@@ -91,6 +92,15 @@ export async function launchReadiness(db: PrismaClient, c: AppConfig, now = new 
   const notLive = adapterKeys.filter((k) => adapters.find((a) => a.key === k)?.status !== 'active');
   add('catalogue.adapters', 'catalogue', 'App adapters for products on sale are active (not sandbox)', notLive.length ? 'fail' : 'pass', notLive.length ? `not active: ${notLive.join(', ')}` : `${adapterKeys.length} active`);
   const rcProducts = activeProducts.filter((p) => p.fulfillment === 'resellerclub');
+  if (c.RESELLERCLUB_ENV !== 'disabled') {
+    const snap = await db.supplierPriceSnapshot.findFirst({ where: { provider: 'resellerclub', kind: 'cost', environment: c.RESELLERCLUB_ENV }, orderBy: { fetchedAt: 'desc' } });
+    const fresh = snap && now.getTime() - snap.checkedAt.getTime() < 48 * 3600_000;
+    add('catalogue.supplier_prices', 'catalogue', 'ResellerClub cost prices are current', fresh ? 'pass' : 'warn',
+      snap ? `last checked ${snap.checkedAt.toISOString()}${fresh ? '' : ' (older than 48 h)'}` : 'never fetched — Admin → ResellerClub prices → Fetch prices now');
+    if (c.RESELLERCLUB_CURRENCY !== 'INR') add('catalogue.supplier_currency', 'catalogue', 'ResellerClub account currency matches the catalogue', 'warn', `RESELLERCLUB_CURRENCY=${c.RESELLERCLUB_CURRENCY}; supplier costs cannot be used for INR prices`);
+    const drift = await costDrift(db, c.RESELLERCLUB_ENV, now);
+    add('catalogue.cost_drift', 'catalogue', 'No supplier cost changes behind prices on sale', drift.length ? 'warn' : 'pass', drift.length ? `${drift.length} price(s) affected — see Admin → ResellerClub prices` : 'none');
+  }
   if (rcProducts.length) {
     const live = c.RESELLERCLUB_ENV === 'live' && c.RESELLERCLUB_ALLOW_LIVE_MUTATIONS;
     add('catalogue.resellerclub', 'catalogue', 'ResellerClub live for supplier products', live ? 'pass' : 'fail', `RESELLERCLUB_ENV=${c.RESELLERCLUB_ENV}, live mutations ${c.RESELLERCLUB_ALLOW_LIVE_MUTATIONS ? 'allowed' : 'blocked'}`);

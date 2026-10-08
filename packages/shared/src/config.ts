@@ -56,6 +56,10 @@ export const baseEnvSchema = z.object({
   RESELLERCLUB_API_KEY: optionalString,
   /** Second, explicit switch required before any chargeable live supplier action. */
   RESELLERCLUB_ALLOW_LIVE_MUTATIONS: bool,
+  /** Currency of the ResellerClub account's prices (the pricing API does not state it). Only INR feeds the catalogue. */
+  RESELLERCLUB_CURRENCY: z.preprocess((v) => (v === '' || v === undefined ? 'INR' : v), z.string().regex(/^[A-Z]{3}$/, 'must be a 3-letter currency code')),
+  /** Hours between automatic price-list refreshes (0 = only on demand). */
+  RESELLERCLUB_PRICE_SYNC_HOURS: days(24, 0, 720),
 
   CASHFREE_ENV: z.enum(['disabled', 'sandbox', 'production']).default('disabled'),
   CASHFREE_CLIENT_ID: optionalString,

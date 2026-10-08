@@ -1,5 +1,5 @@
 import { PrismaClient } from '@ooc/db';
-import { AdapterRegistry, CashfreeClient, advanceOverdueRenewals, expireApprovals, expireStaleUpgradeOrders, creditConfirmedRefunds, reconcileRefunds, claimRenewalReminders, expireStaleReservations, prepareRenewals, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
+import { AdapterRegistry, CashfreeClient, ResellerClubClient, priceSyncDue, syncResellerClubPrices, advanceOverdueRenewals, expireApprovals, expireStaleUpgradeOrders, creditConfirmedRefunds, reconcileRefunds, claimRenewalReminders, expireStaleReservations, prepareRenewals, issueInvoiceForOrder, ordersAwaitingInvoice, processInboxRow, processSubscriptionLifecycle, reconcilePaymentOrder, runProvisioningJob } from '@ooc/integrations';
 import { RenewalSettings, SellerProfile } from '@ooc/shared';
 import { Mailer } from './mail';
 import { log } from './log';
@@ -15,6 +15,24 @@ export interface Deps {
   sellerStateCode?: string;
   appUrl: string;
   mailer: Mailer;
+  resellerclub: ResellerClubClient;
+  resellerclubCurrency: string;
+  priceSyncHours: number;
+  enqueuePriceSync: (kind: 'cost' | 'customer') => Promise<void>;
+}
+
+/** Fetches one ResellerClub price list into a snapshot and reports cost changes behind prices on sale. */
+export async function handlePriceSync(deps: Deps, kind: 'cost' | 'customer', actorId?: string) {
+  if (!deps.resellerclub.enabled) {
+    log('warn', 'price sync skipped: RESELLERCLUB_ENV=disabled', { kind });
+    return null;
+  }
+  const r = await syncResellerClubPrices(deps.db, deps.resellerclub, kind, { currency: deps.resellerclubCurrency, actorId });
+  log('info', 'supplier prices synced', { kind, unchanged: r.unchanged, items: r.itemCount, skipped: r.skippedCount, changed: r.changedCount, affectedPrices: r.affectedPrices.length });
+  if (!r.unchanged && r.affectedPrices.length) {
+    log('warn', 'supplier cost changed for prices on sale', { prices: r.affectedPrices.map((p) => ({ product: p.product, plan: p.plan, ref: p.ref, from: p.recordedCostMinor, to: p.currentCostMinor, marginBps: p.marginBps })) });
+  }
+  return r;
 }
 
 let warnedNoSeller = false;
@@ -95,6 +113,11 @@ export async function sweep(deps: Deps, enqueue: { inbox: (id: string) => Promis
   for (const r of refunds) if (r.result === 'error') log('warn', 'refund reconcile failed', r);
   const credits = deps.seller ? await creditConfirmedRefunds(deps.db, deps.seller) : [];
   for (const c of credits) log(c.error ? 'error' : 'info', c.error ? 'refund credit note failed' : 'refund credit note issued', c);
+
+  // Supplier price lists: refresh when due (RESELLERCLUB_PRICE_SYNC_HOURS); the fetch itself runs on the supplier queue.
+  if (deps.resellerclub.enabled) {
+    for (const kind of await priceSyncDue(deps.db, deps.resellerclub.environment, deps.priceSyncHours)) await deps.enqueuePriceSync(kind);
+  }
 
   // Customer-paid renewals: create renewal orders, move unpaid ones through past due → suspension → lapse,
   // and send reminders (each stage at most once).

@@ -185,7 +185,9 @@ old key until the operator re-enrols MFA; connector tokens move to the new key w
 | `RESELLERCLUB_BASE_URL` | ◐ when enabled | — | demo `https://test.httpapi.com/api`, live `https://httpapi.com/api` (verify in docs) | Must be https. |
 | `RESELLERCLUB_AUTH_USERID` | ◐ when enabled | — | reseller id | Sent as `auth-userid`; redacted from logs. |
 | `RESELLERCLUB_API_KEY` | ◐ when enabled | — | API key | Sent as `api-key`. Use **demo** keys for demo: the test host does not protect live accounts. Allowlist the server IP in the panel. |
-| `RESELLERCLUB_ALLOW_LIVE_MUTATIONS` | — | `false` | bool | Second switch required before any chargeable live action; only valid with `live`. Set after release sign-off. |
+| `RESELLERCLUB_ALLOW_LIVE_MUTATIONS` | — | `false` | bool | Second switch required before any chargeable live action; only valid with `live`. Set after release sign-off. Not needed for fetching prices (read-only). |
+| `RESELLERCLUB_CURRENCY` | — | `INR` | 3-letter code | Currency your ResellerClub account is billed in (the pricing API does not state it). Only INR costs can be attached to catalogue prices. |
+| `RESELLERCLUB_PRICE_SYNC_HOURS` | — | `24` | 0–720 | How often the worker refreshes the cost and selling price lists; `0` = only via **Admin → ResellerClub prices → Fetch prices now**. See `docs/resellerclub-pricing.md`. |
 
 ## 10. Hosted apps (adapters)
 

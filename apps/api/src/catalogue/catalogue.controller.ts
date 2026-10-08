@@ -15,6 +15,8 @@ const Price = z.object({
   setupFeeMinor: minor.default(0),
   costMinor: minor.nullable().default(null),
   costSource: z.string().max(200).nullable().default(null),
+  /** Take the cost from the latest ResellerClub cost snapshot, e.g. "dotin/renewdomain/1" (overrides costMinor/costSource). */
+  supplierCostRef: z.string().min(3).max(300).optional(),
   isPremium: z.boolean().default(false),
 });
 const Status = z.object({ status: z.enum(['active', 'draft', 'retired']) });

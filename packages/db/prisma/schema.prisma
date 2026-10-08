@@ -845,6 +845,47 @@ model UsageReservation {
   org        Organization      @relation(fields: [orgId], references: [id])
 }
 
+// ───────────────────────────── Supplier price lists ─────────────────────────────
+
+// One fetch of a supplier price list (e.g. ResellerClub reseller cost or customer price). Identical re-fetches only
+// update checkedAt; the last few snapshots per kind are kept for comparison.
+model SupplierPriceSnapshot {
+  id           String          @id @default(uuid()) @db.Uuid
+  provider     String          // resellerclub
+  kind         String          // cost | customer
+  environment  String          // demo | live
+  currency     String
+  itemCount    Int
+  skippedCount Int             @default(0)
+  contentHash  String
+  // Prices added, removed or changed compared with the previous snapshot of the same kind (null for the first).
+  changedCount Int?
+  fetchedById  String?         @db.Uuid
+  fetchedAt    DateTime        @default(now())
+  checkedAt    DateTime        @default(now())
+  prices       SupplierPrice[]
+
+  @@index([provider, kind, fetchedAt])
+}
+
+// One price point. `ref` is the path in the supplier's response (e.g. "dotin/addnewdomain/1"), stable across fetches.
+model SupplierPrice {
+  id          String                @id @default(uuid()) @db.Uuid
+  snapshotId  String                @db.Uuid
+  ref         String
+  productKey  String
+  category    String                // domain | hosting | server | email | certificate | addon | other
+  plan        String?
+  action      String?
+  term        Int?
+  termUnit    String?               // years | months
+  amountMinor BigInt
+  snapshot    SupplierPriceSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, ref])
+  @@index([snapshotId, productKey])
+}
+
 // ───────────────────────────── Provisioning & supplier journal ─────────────────────────────
 
 enum ProvisioningStatus {

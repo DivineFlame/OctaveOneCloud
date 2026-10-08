@@ -1,13 +1,13 @@
 import { Job, Queue, Worker } from 'bullmq';
 import { createPrismaClient } from '@ooc/db';
-import { CashfreeClient } from '@ooc/integrations';
+import { CashfreeClient, ResellerClubClient } from '@ooc/integrations';
 import { cashfreeBaseUrl, loadConfig, redisOptionsFromUrl, renewalSettings, sellerProfile } from '@ooc/shared';
 import { buildAdapterRegistry } from './adapters';
 import { createMailer } from './mail';
-import { Deps, handleInbox, handleProvisioning, handleReconcile, sweep } from './jobs';
+import { Deps, handleInbox, handlePriceSync, handleProvisioning, handleReconcile, sweep } from './jobs';
 import { log } from './log';
 
-const QUEUES = { webhooks: 'webhooks', provisioning: 'provisioning', reconcile: 'reconcile', maintenance: 'maintenance' } as const;
+const QUEUES = { webhooks: 'webhooks', provisioning: 'provisioning', reconcile: 'reconcile', maintenance: 'maintenance', supplier: 'supplier' } as const;
 
 async function main() {
   const config = loadConfig(process.env);
@@ -19,6 +19,8 @@ async function main() {
     provisioning: new Queue(QUEUES.provisioning, { connection, defaultJobOptions: { ...defaultJobOptions, attempts: 3 } }),
     reconcile: new Queue(QUEUES.reconcile, { connection, defaultJobOptions }),
     maintenance: new Queue(QUEUES.maintenance, { connection }),
+    // Supplier price-list fetches are slow (large responses); a separate queue keeps them off the sweep.
+    supplier: new Queue(QUEUES.supplier, { connection, defaultJobOptions: { attempts: 3, backoff: { type: 'exponential' as const, delay: 60_000 }, removeOnComplete: 100, removeOnFail: 100 } }),
   };
   const deps: Deps = {
     db,
@@ -28,6 +30,13 @@ async function main() {
     renewal: renewalSettings(config),
     sellerStateCode: config.SELLER_STATE_CODE,
     appUrl: config.APP_URL,
+    resellerclub: new ResellerClubClient(config, db),
+    resellerclubCurrency: config.RESELLERCLUB_CURRENCY,
+    priceSyncHours: config.RESELLERCLUB_PRICE_SYNC_HOURS,
+    enqueuePriceSync: async (kind) => {
+      // One pending job per kind per hour window; manual requests from the API use their own job ids.
+      await queues.supplier.add('price-sync', { kind }, { jobId: `price-sync-${kind}-${Math.floor(Date.now() / 3_600_000)}` });
+    },
     mailer: createMailer(config),
     enqueueProvisioning: async (id) => {
       await queues.provisioning.add('run', { jobId: id }, { jobId: `prov-${id}-${Date.now()}` });
@@ -38,6 +47,7 @@ async function main() {
   const workers = [
     new Worker(QUEUES.webhooks, (j: Job<{ inboxId: string }>) => handleInbox(deps, j.data.inboxId), { connection, concurrency: 4 }),
     new Worker(QUEUES.provisioning, (j: Job<{ jobId: string }>) => handleProvisioning(deps, j.data.jobId), { connection, concurrency: 2 }),
+    new Worker(QUEUES.supplier, (j: Job<{ kind: 'cost' | 'customer'; actorId?: string }>) => handlePriceSync(deps, j.data.kind, j.data.actorId), { connection, concurrency: 1 }),
     new Worker(QUEUES.reconcile, (j: Job<{ paymentOrderId: string }>) => handleReconcile(deps, j.data.paymentOrderId), { connection, concurrency: 2 }),
     new Worker(
       QUEUES.maintenance,

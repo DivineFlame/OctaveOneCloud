@@ -15,6 +15,9 @@ export interface Capability {
 }
 
 export const RESELLERCLUB_CAPABILITIES: Capability[] = [
+  // Read-only price lists (help articles reviewed 2026-10-08). Account eligibility and a demo run still to record.
+  { adapterKey: 'resellerclub.pricing', operation: 'reseller_cost_price', docs: 'https://www.resellerclub.com/help/article/Get-Reseller-Cost-Pricing-Details-Using-the-API', accountEligible: null, sandboxVerifiedAt: null, verified: false, fallback: 'Operator enters supplier cost manually' },
+  { adapterKey: 'resellerclub.pricing', operation: 'customer_price', docs: 'https://www.resellerclub.com/help/article/How-to-Fetch-Customer-Pricing-Using-the-Products-Pricing-API', accountEligible: null, sandboxVerifiedAt: null, verified: false, fallback: 'Selling prices maintained in the catalogue only' },
   { adapterKey: 'resellerclub.domain', operation: 'availability', docs: null, accountEligible: null, sandboxVerifiedAt: null, verified: false, fallback: 'Disable domain search' },
   { adapterKey: 'resellerclub.domain', operation: 'register', docs: null, accountEligible: null, sandboxVerifiedAt: null, verified: false, fallback: 'Manual service task' },
   { adapterKey: 'resellerclub.domain', operation: 'transfer', docs: null, accountEligible: null, sandboxVerifiedAt: null, verified: false, fallback: 'Manual service task' },

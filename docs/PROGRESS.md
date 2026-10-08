@@ -52,6 +52,7 @@ Nothing here is production-certified. No real purchase, payment collection, DNS 
 | Reconciliation via status API + periodic sweeper | 🟡 | Logic tested with mocks |
 | Refund / dispute event handling | 🟡 | Webhooks + status API; mocked in tests |
 | Refund initiation (finance operators, capped, idempotent, timeout-safe, credit note on confirmation) | 🟡 | `docs/invoicing.md#refunds`; Cashfree mocked — needs sandbox run |
+| ResellerClub price lists (cost + selling): fetch, snapshots, change detection, catalogue cost basis, margin alerts | 🟡 | `docs/resellerclub-pricing.md`; endpoints from official help articles; mocked in tests — needs a demo-account run |
 | One eligible ResellerClub product end-to-end | ⛔ | Blocked on capability verification |
 | Supplier journal + unknown-outcome recovery | ✅ | Operator resolve endpoint |
 

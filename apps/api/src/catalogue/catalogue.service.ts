@@ -4,7 +4,7 @@ import { AppConfig } from '@ooc/shared';
 import { APP_CONFIG } from '../config/config.module';
 import { PRISMA } from '../common/prisma.module';
 import { AuditService } from '../common/audit.service';
-import { isCapabilityVerified } from '@ooc/integrations';
+import { COST_SOURCE_PREFIX, currentSupplierCost, isCapabilityVerified } from '@ooc/integrations';
 
 const ISO_DURATION = /^P(\d+Y)?(\d+M)?(\d+D)?$/;
 
@@ -100,9 +100,16 @@ export class CatalogueService {
 
   async addPrice(
     planVersionId: string,
-    input: { kind: PriceKind; currency: 'INR'; billingInterval: string; amountMinor: number; setupFeeMinor: number; costMinor: number | null; costSource: string | null; isPremium: boolean; effectiveFrom?: Date },
+    input: { kind: PriceKind; currency: 'INR'; billingInterval: string; amountMinor: number; setupFeeMinor: number; costMinor: number | null; costSource: string | null; supplierCostRef?: string; isPremium: boolean; effectiveFrom?: Date },
     actorId: string,
   ) {
+    if (input.supplierCostRef) {
+      if (this.config.RESELLERCLUB_ENV === 'disabled') throw new BadRequestException({ error: 'resellerclub_disabled', message: 'Enable ResellerClub (demo or live) to use supplier costs' });
+      const cost = await currentSupplierCost(this.db, input.supplierCostRef, this.config.RESELLERCLUB_ENV);
+      if (!cost) throw new BadRequestException({ error: 'supplier_cost_not_found', message: 'No such item in the latest ResellerClub cost snapshot — sync prices first' });
+      if (cost.currency !== input.currency) throw new BadRequestException({ error: 'supplier_currency_mismatch', message: `ResellerClub prices are in ${cost.currency}; catalogue prices are ${input.currency}` });
+      input = { ...input, costMinor: cost.amountMinor, costSource: `${COST_SOURCE_PREFIX}${input.supplierCostRef}` };
+    }
     if (!ISO_DURATION.test(input.billingInterval) || input.billingInterval === 'P') throw new BadRequestException({ error: 'invalid_billing_interval' });
     const v = await this.db.planVersion.findUnique({ where: { id: planVersionId } });
     if (!v) throw new NotFoundException();
