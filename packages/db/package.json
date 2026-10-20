@@ -29,7 +29,7 @@
     "prisma": "7.10.0",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
-    "@prisma/schema-engine-wasm": "7.10.0-4.0edf323efd1d98336f3f0a68684b56f689b900d3"
+    "@prisma/schema-engine-wasm": "7.10.0-8.shadow-db-safety-s4-52d3b3c7e4002ee167a8803802fa11ced0e2c163"
   },
   "exports": {
     ".": {
