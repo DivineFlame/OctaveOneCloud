@@ -17,16 +17,16 @@
   },
   "dependencies": {
     "@ooc/shared": "workspace:*",
-    "@prisma/adapter-pg": "7.10.0",
-    "@prisma/client": "7.10.0",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
     "dotenv": "16.6.1",
-    "pg": "8.23.0",
-    "@prisma/driver-adapter-utils": "7.10.0"
+    "pg": "8.23.1",
+    "@prisma/driver-adapter-utils": "7.10.1"
   },
   "devDependencies": {
-    "@types/node": "22.20.4",
+    "@types/node": "22.20.5",
     "@types/pg": "8.23.1",
-    "prisma": "7.10.0",
+    "prisma": "7.10.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "@prisma/schema-engine-wasm": "7.10.0-4.0edf323efd1d98336f3f0a68684b56f689b900d3"
